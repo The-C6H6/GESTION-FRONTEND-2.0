@@ -1,4 +1,5 @@
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import date, datetime
 
 import flet as ft
@@ -11,6 +12,66 @@ from esiqie_dictamenes.features.dictamenes.periodos import current_period
 from esiqie_dictamenes.features.alumnos.views.reprobados import eligible_subjects_table
 from esiqie_dictamenes.shared.components.feedback import feedback
 from esiqie_dictamenes.shared.components.page_header import page_header
+
+
+class _RequestGate:
+    def __init__(self) -> None:
+        self.active = False
+
+    def enter(self) -> bool:
+        if self.active:
+            return False
+        self.active = True
+        return True
+
+    def leave(self) -> None:
+        self.active = False
+
+
+@dataclass(frozen=True)
+class _StudentSearchResult:
+    alumno: object
+    materias: tuple
+    total_reprobadas: int
+
+
+async def _run_guarded_search(
+    gate: _RequestGate,
+    set_busy: Callable[[bool], None],
+    operation: Callable[[], Awaitable[None]],
+) -> bool:
+    if not gate.enter():
+        return False
+    set_busy(True)
+    try:
+        await operation()
+        return True
+    finally:
+        set_busy(False)
+        gate.leave()
+
+
+async def _find_student(services, source: str, query: str, period: str):
+    alumno = await services.alumno_controller.find_inscrito(query)
+    if source == "reprobado":
+        return await services.dictamen_controller.find_reprobado_candidate_for_student(
+            alumno,
+            period,
+        )
+    return _StudentSearchResult(alumno, (), 0)
+
+
+def _redirect_expired_session(context, error: Exception, navigate: Callable) -> bool:
+    if not context.handle_session_error(error):
+        return False
+    navigate(RoutePath.LOGIN)
+    return True
+
+
+def _failed_subjects_empty_message(total_reprobadas: int) -> str:
+    if total_reprobadas == 0:
+        return "El alumno no tiene materias reprobadas registradas."
+    return "No hay materias que cumplan la regla 19 ≤ diferencia < 29."
 
 
 def _as_date(value: date | datetime) -> date:
@@ -45,11 +106,13 @@ def _build_session_date_picker(
 @ft.component
 def DictamenCreateView() -> ft.Control:
     context = use_app_context()
+    search_gate = ft.use_memo(_RequestGate, [])
     source, set_source = ft.use_state("inscrito")
     query, set_query = ft.use_state("")
     period, set_period = ft.use_state(current_period(date.today()))
     alumno, set_alumno = ft.use_state(None)
     materias, set_materias = ft.use_state(())
+    total_reprobadas, set_total_reprobadas = ft.use_state(0)
     director, set_director = ft.use_state("")
     dictaminacion, set_dictaminacion = ft.use_state("")
     fecha_sesion, set_fecha_sesion = ft.use_state(date.today())
@@ -71,30 +134,27 @@ def DictamenCreateView() -> ft.Control:
     ft.use_dialog(picker if show_date_picker else None)
 
     async def search() -> None:
-        if search_busy:
-            return
-        set_search_busy(True)
-        try:
-            if source == "inscrito":
-                set_alumno(await context.services.alumno_controller.find_inscrito(query))
-                set_materias(())
-            else:
-                candidate = await context.services.dictamen_controller.find_reprobado_candidate(
-                    query, period
-                )
-                set_alumno(candidate.alumno)
-                set_materias(candidate.materias)
+        async def operation() -> None:
+            result = await _find_student(context.services, source, query, period)
+            set_alumno(result.alumno)
+            set_materias(result.materias)
+            set_total_reprobadas(result.total_reprobadas)
             set_message("")
             set_is_error(False)
+
+        try:
+            await _run_guarded_search(search_gate, set_search_busy, operation)
         except Exception as error:
             set_alumno(None)
             set_materias(())
+            set_total_reprobadas(0)
             set_message(to_user_message(error))
             set_is_error(True)
-            if context.handle_session_error(error):
-                ft.context.page.navigate(RoutePath.LOGIN)
-        finally:
-            set_search_busy(False)
+            _redirect_expired_session(
+                context,
+                error,
+                ft.context.page.navigate,
+            )
 
     async def create() -> None:
         try:
@@ -129,7 +189,14 @@ def DictamenCreateView() -> ft.Control:
                         ft.Text(alumno.nombre, size=20, weight=ft.FontWeight.BOLD),
                         ft.Text(f"Boleta: {alumno.boleta}"),
                         ft.Text(f"Carrera: {alumno.carrera}"),
-                        eligible_subjects_table(materias) if source == "reprobado" else ft.Container(),
+                        eligible_subjects_table(
+                            materias,
+                            empty_message=_failed_subjects_empty_message(
+                                total_reprobadas
+                            ),
+                        )
+                        if source == "reprobado"
+                        else ft.Container(),
                     ]
                 ),
             )
@@ -145,14 +212,16 @@ def DictamenCreateView() -> ft.Control:
                     ft.DropdownOption(key="reprobado", text="Alumno reprobado"),
                 ],
                 on_select=lambda e: set_source(e.control.value),
+                disabled=search_busy,
                 key="dictamen-source",
             ),
             ft.Row(
                 [
                     ft.TextField(
-                        label="Boleta o nombre del alumno",
+                        label="Número de boleta",
                         value=query,
                         on_change=lambda e: set_query(e.control.value),
+                        disabled=search_busy,
                         expand=True,
                         key="dictamen-student-query",
                     ),
@@ -162,6 +231,7 @@ def DictamenCreateView() -> ft.Control:
                         on_change=lambda e: set_period(e.control.value),
                         width=170,
                         visible=source == "reprobado",
+                        disabled=search_busy,
                         key="dictamen-current-period",
                     ),
                     ft.Button(
