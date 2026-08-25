@@ -6,6 +6,7 @@ from esiqie_dictamenes.core.errors import (
     AuthenticationError,
     AuthorizationError,
     NotFoundError,
+    SessionExpiredError,
     ServiceUnavailableError,
     UnexpectedResponseError,
     ValidationError,
@@ -30,6 +31,10 @@ def test_unknown_errors_do_not_expose_technical_details():
         (ApiConnectionError(), "No fue posible conectar con el servicio."),
         (ApiTimeoutError(), "El servicio tardó demasiado en responder."),
         (AuthenticationError(), "Usuario o contraseña incorrectos."),
+        (
+            SessionExpiredError(),
+            "La sesión no es válida. Inicia sesión nuevamente.",
+        ),
         (AuthorizationError(), "No tienes permiso para realizar esta acción."),
         (NotFoundError(), "No se encontró el recurso solicitado."),
         (ValidationError(), "Los datos enviados no son válidos."),

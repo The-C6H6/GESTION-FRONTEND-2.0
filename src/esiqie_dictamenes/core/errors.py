@@ -41,6 +41,13 @@ class AuthenticationError(AppError):
         super().__init__("Usuario o contraseña incorrectos.")
 
 
+class SessionExpiredError(AppError):
+    """Raised when an authenticated API session is no longer valid."""
+
+    def __init__(self) -> None:
+        super().__init__("La sesión no es válida. Inicia sesión nuevamente.")
+
+
 class AuthorizationError(AppError):
     """Raised when the authenticated identity lacks permission."""
 

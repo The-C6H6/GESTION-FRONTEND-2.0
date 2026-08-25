@@ -6,11 +6,16 @@ from esiqie_dictamenes.core.settings import load_api_settings
 
 def test_settings_load_api_base_url_and_login_path():
     settings = load_api_settings(
-        {"API_BASE_URL": "http://api.test", "RUTA_LOGIN": "/api/auth/login"}
+        {
+            "API_BASE_URL": "http://api.test",
+            "RUTA_LOGIN": "/api/auth/login",
+            "RUTA_VISUALIZAR_INSCRITOS": "/api/inscritos/{boleta}",
+        }
     )
 
     assert settings.base_url == "http://api.test"
     assert settings.login_path == "/api/auth/login"
+    assert settings.inscrito_path == "/api/inscritos/{boleta}"
     assert settings.timeout_seconds == 10.0
 
 
@@ -20,6 +25,7 @@ def test_settings_prefer_api_base_url_over_legacy_ip_address():
             "API_BASE_URL": "http://api.test/",
             "IP_ADDRESS": "http://legacy.test",
             "RUTA_LOGIN": "/login",
+            "RUTA_VISUALIZAR_INSCRITOS": "/inscritos/{boleta}",
         }
     )
 
@@ -28,16 +34,29 @@ def test_settings_prefer_api_base_url_over_legacy_ip_address():
 
 def test_settings_accept_legacy_ip_address():
     settings = load_api_settings(
-        {"IP_ADDRESS": "http://legacy.test", "RUTA_LOGIN": "/login"}
+        {
+            "IP_ADDRESS": "http://legacy.test",
+            "RUTA_LOGIN": "/login",
+            "RUTA_VISUALIZAR_INSCRITOS": "/inscritos/{boleta}",
+        }
     )
 
     assert settings.base_url == "http://legacy.test"
 
 
-@pytest.mark.parametrize("missing", ["base_url", "login_path"])
+@pytest.mark.parametrize("missing", ["base_url", "login_path", "inscrito_path"])
 def test_settings_reject_incomplete_configuration(missing):
-    values = {"API_BASE_URL": "http://api.test", "RUTA_LOGIN": "/login"}
-    values.pop("API_BASE_URL" if missing == "base_url" else "RUTA_LOGIN")
+    keys = {
+        "base_url": "API_BASE_URL",
+        "login_path": "RUTA_LOGIN",
+        "inscrito_path": "RUTA_VISUALIZAR_INSCRITOS",
+    }
+    values = {
+        "API_BASE_URL": "http://api.test",
+        "RUTA_LOGIN": "/login",
+        "RUTA_VISUALIZAR_INSCRITOS": "/inscritos/{boleta}",
+    }
+    values.pop(keys[missing])
 
     with pytest.raises(ConfigurationError, match="configuración"):
         load_api_settings(values)
@@ -47,12 +66,28 @@ def test_settings_reject_incomplete_configuration(missing):
     ("values", "message"),
     [
         (
-            {"API_BASE_URL": "api.test", "RUTA_LOGIN": "/login"},
+            {
+                "API_BASE_URL": "api.test",
+                "RUTA_LOGIN": "/login",
+                "RUTA_VISUALIZAR_INSCRITOS": "/inscritos/{boleta}",
+            },
             "URL base",
         ),
         (
-            {"API_BASE_URL": "http://api.test", "RUTA_LOGIN": "login"},
+            {
+                "API_BASE_URL": "http://api.test",
+                "RUTA_LOGIN": "login",
+                "RUTA_VISUALIZAR_INSCRITOS": "/inscritos/{boleta}",
+            },
             "ruta de login",
+        ),
+        (
+            {
+                "API_BASE_URL": "http://api.test",
+                "RUTA_LOGIN": "/login",
+                "RUTA_VISUALIZAR_INSCRITOS": "/inscritos",
+            },
+            "ruta de inscritos",
         ),
     ],
 )

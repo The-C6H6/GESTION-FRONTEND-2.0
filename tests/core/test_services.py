@@ -4,6 +4,7 @@ import httpx
 
 from esiqie_dictamenes.core.services import build_demo_services, build_services
 from esiqie_dictamenes.core.settings import ApiSettings
+from tests.infrastructure.http.test_inscrito_repository import INSCRITO_RESPONSE
 
 
 def test_demo_services_do_not_share_mutable_repositories_between_sessions():
@@ -27,7 +28,11 @@ def test_production_services_use_api_login_and_store_tokens():
         )
 
     services = build_services(
-        settings=ApiSettings("http://api.test", "/api/auth/login"),
+        settings=ApiSettings(
+            "http://api.test",
+            "/api/auth/login",
+            "/api/inscritos/{boleta}",
+        ),
         transport=httpx.MockTransport(handler),
     )
 
@@ -44,7 +49,11 @@ def test_production_services_keep_user_registration_in_demo_mode():
         raise AssertionError("User registration must not call the API yet.")
 
     services = build_services(
-        settings=ApiSettings("http://api.test", "/api/auth/login"),
+        settings=ApiSettings(
+            "http://api.test",
+            "/api/auth/login",
+            "/api/inscritos/{boleta}",
+        ),
         transport=httpx.MockTransport(reject_network),
     )
 
@@ -68,3 +77,59 @@ def test_services_clear_tokens_on_logout():
     services.clear_authentication()
 
     assert services.auth_tokens.access_token is None
+
+
+def test_production_services_share_login_token_with_inscritos():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/auth/login":
+            return httpx.Response(
+                200,
+                json={
+                    "access_token": "shared-access",
+                    "refresh_token": "shared-refresh",
+                    "token_type": "bearer",
+                },
+            )
+        assert request.url.path == "/api/inscritos/2022630000"
+        assert request.headers["Authorization"] == "Bearer shared-access"
+        return httpx.Response(200, json=INSCRITO_RESPONSE)
+
+    services = build_services(
+        settings=ApiSettings(
+            "http://api.test",
+            "/api/auth/login",
+            "/api/inscritos/{boleta}",
+        ),
+        transport=httpx.MockTransport(handler),
+    )
+    asyncio.run(services.auth_controller.login("directivo", "secreto"))
+
+    alumno = asyncio.run(
+        services.alumno_controller.find_inscrito(" 2022630000 ")
+    )
+
+    assert alumno.nombre == "María Hernández García"
+
+
+def test_production_services_keep_reprobados_in_demo_mode():
+    def reject_network(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("Reprobados must remain in demo mode.")
+
+    services = build_services(
+        settings=ApiSettings(
+            "http://api.test",
+            "/api/auth/login",
+            "/api/inscritos/{boleta}",
+        ),
+        transport=httpx.MockTransport(reject_network),
+    )
+
+    candidate = asyncio.run(
+        services.dictamen_controller.find_reprobado_candidate(
+            "2024320678",
+            "20271",
+        )
+    )
+
+    assert candidate.alumno.boleta == "2024320678"
+    assert candidate.materias

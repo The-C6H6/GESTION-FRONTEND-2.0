@@ -7,9 +7,9 @@ import pytest
 from esiqie_dictamenes.core.errors import (
     ApiConnectionError,
     ApiTimeoutError,
-    AuthenticationError,
     AuthorizationError,
     NotFoundError,
+    SessionExpiredError,
     ServiceUnavailableError,
     UnexpectedResponseError,
     ValidationError,
@@ -21,7 +21,11 @@ from esiqie_dictamenes.infrastructure.http.token_store import AuthTokenStore
 
 def _client(handler, tokens=None):
     return ApiClient(
-        ApiSettings("http://api.test", "/api/auth/login"),
+        ApiSettings(
+            "http://api.test",
+            "/api/auth/login",
+            "/api/inscritos/{boleta}",
+        ),
         tokens or AuthTokenStore(),
         transport=httpx.MockTransport(handler),
     )
@@ -61,7 +65,7 @@ def test_api_client_omits_authorization_without_a_token():
 @pytest.mark.parametrize(
     ("status_code", "error_type"),
     [
-        (401, AuthenticationError),
+        (401, SessionExpiredError),
         (403, AuthorizationError),
         (404, NotFoundError),
         (422, ValidationError),
@@ -83,6 +87,19 @@ def test_api_client_maps_connection_failures():
 
     with pytest.raises(ApiConnectionError):
         asyncio.run(_client(handler).request_json("GET", "/resource"))
+
+
+def test_api_client_clears_tokens_when_the_session_expires():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"detail": "expired token"})
+
+    tokens = AuthTokenStore()
+    tokens.replace("expired-access", "expired-refresh")
+
+    with pytest.raises(SessionExpiredError):
+        asyncio.run(_client(handler, tokens).request_json("GET", "/resource"))
+
+    assert tokens.access_token is None
 
 
 def test_api_client_maps_timeouts_separately():

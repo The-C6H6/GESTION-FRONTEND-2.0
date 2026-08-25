@@ -16,7 +16,11 @@ def test_find_inscrito_returns_the_matching_student():
 
 
 def test_find_inscrito_requires_a_boleta():
-    controller = AlumnoController(DemoAlumnoRepository())
+    class RejectingRepository:
+        async def get_inscrito(self, boleta):
+            raise AssertionError("An invalid boleta must not reach the repository.")
+
+    controller = AlumnoController(RejectingRepository())
 
     with pytest.raises(ValidationError, match="boleta"):
-        asyncio.run(controller.find_inscrito(""))
+        asyncio.run(controller.find_inscrito("   "))

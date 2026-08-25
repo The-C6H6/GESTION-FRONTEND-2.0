@@ -12,6 +12,7 @@ from esiqie_dictamenes.core.errors import ConfigurationError
 class ApiSettings:
     base_url: str
     login_path: str
+    inscrito_path: str
     timeout_seconds: float = 10.0
 
 
@@ -22,7 +23,8 @@ def load_api_settings(environ: Mapping[str, str] | None = None) -> ApiSettings:
 
     base_url = (environ.get("API_BASE_URL") or environ.get("IP_ADDRESS") or "").strip()
     login_path = (environ.get("RUTA_LOGIN") or "").strip()
-    if not base_url or not login_path:
+    inscrito_path = (environ.get("RUTA_VISUALIZAR_INSCRITOS") or "").strip()
+    if not base_url or not login_path or not inscrito_path:
         raise ConfigurationError(
             "La configuración de conexión con la API está incompleta."
         )
@@ -32,5 +34,15 @@ def load_api_settings(environ: Mapping[str, str] | None = None) -> ApiSettings:
         raise ConfigurationError("La URL base de la API no es válida.")
     if not login_path.startswith("/") or urlsplit(login_path).netloc:
         raise ConfigurationError("La ruta de login de la API no es válida.")
+    if (
+        not inscrito_path.startswith("/")
+        or urlsplit(inscrito_path).netloc
+        or inscrito_path.count("{boleta}") != 1
+    ):
+        raise ConfigurationError("La ruta de inscritos de la API no es válida.")
 
-    return ApiSettings(base_url=base_url.rstrip("/"), login_path=login_path)
+    return ApiSettings(
+        base_url=base_url.rstrip("/"),
+        login_path=login_path,
+        inscrito_path=inscrito_path,
+    )

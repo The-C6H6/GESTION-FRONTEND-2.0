@@ -15,7 +15,11 @@ from esiqie_dictamenes.infrastructure.http.token_store import AuthTokenStore
 
 
 def _repository(handler):
-    settings = ApiSettings("http://api.test", "/api/auth/login")
+    settings = ApiSettings(
+        "http://api.test",
+        "/api/auth/login",
+        "/api/inscritos/{boleta}",
+    )
     tokens = AuthTokenStore()
     client = ApiClient(
         settings,

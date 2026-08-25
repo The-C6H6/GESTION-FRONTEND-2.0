@@ -13,14 +13,22 @@ def InscritoSearchView() -> ft.Control:
     query, set_query = ft.use_state("")
     alumno, set_alumno = ft.use_state(None)
     message, set_message = ft.use_state("")
+    busy, set_busy = ft.use_state(False)
 
     async def search() -> None:
+        if busy:
+            return
+        set_busy(True)
         try:
             set_alumno(await context.services.alumno_controller.find_inscrito(query))
             set_message("")
         except Exception as error:
             set_alumno(None)
             set_message(to_user_message(error))
+            if context.handle_session_error(error):
+                ft.context.page.navigate(RoutePath.LOGIN)
+        finally:
+            set_busy(False)
 
     details = ft.Container()
     if alumno:
@@ -53,7 +61,12 @@ def InscritoSearchView() -> ft.Control:
             ft.Row(
                 [
                     ft.TextField(label="Número de boleta", value=query, on_change=lambda e: set_query(e.control.value), expand=True, key="inscrito-query"),
-                    ft.Button("Buscar", on_click=search, key="inscrito-search"),
+                    ft.Button(
+                        "Buscando..." if busy else "Buscar",
+                        on_click=search,
+                        disabled=busy,
+                        key="inscrito-search",
+                    ),
                 ]
             ),
             feedback(message, error=True),

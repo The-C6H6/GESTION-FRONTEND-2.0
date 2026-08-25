@@ -33,8 +33,7 @@ def AppShell(content: ft.Control) -> ft.Control:
     context = use_app_context()
 
     def logout() -> None:
-        context.services.clear_authentication()
-        context.set_session(None)
+        context.invalidate_session()
         ft.context.page.navigate(RoutePath.LOGIN)
 
     sidebar = ft.Container(

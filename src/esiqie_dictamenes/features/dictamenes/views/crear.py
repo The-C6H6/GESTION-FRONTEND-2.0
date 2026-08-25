@@ -5,6 +5,7 @@ import flet as ft
 
 from esiqie_dictamenes.core.context import use_app_context
 from esiqie_dictamenes.core.errors import to_user_message
+from esiqie_dictamenes.core.routes import RoutePath
 from esiqie_dictamenes.features.dictamenes.pdf import format_session_date
 from esiqie_dictamenes.features.dictamenes.periodos import current_period
 from esiqie_dictamenes.features.alumnos.views.reprobados import eligible_subjects_table
@@ -55,6 +56,7 @@ def DictamenCreateView() -> ft.Control:
     show_date_picker, set_show_date_picker = ft.use_state(False)
     message, set_message = ft.use_state("")
     is_error, set_is_error = ft.use_state(False)
+    search_busy, set_search_busy = ft.use_state(False)
 
     def select_session_date(event: ft.Event[ft.DatePicker]) -> None:
         if event.control.value is not None:
@@ -69,6 +71,9 @@ def DictamenCreateView() -> ft.Control:
     ft.use_dialog(picker if show_date_picker else None)
 
     async def search() -> None:
+        if search_busy:
+            return
+        set_search_busy(True)
         try:
             if source == "inscrito":
                 set_alumno(await context.services.alumno_controller.find_inscrito(query))
@@ -86,6 +91,10 @@ def DictamenCreateView() -> ft.Control:
             set_materias(())
             set_message(to_user_message(error))
             set_is_error(True)
+            if context.handle_session_error(error):
+                ft.context.page.navigate(RoutePath.LOGIN)
+        finally:
+            set_search_busy(False)
 
     async def create() -> None:
         try:
@@ -155,7 +164,12 @@ def DictamenCreateView() -> ft.Control:
                         visible=source == "reprobado",
                         key="dictamen-current-period",
                     ),
-                    ft.Button("Buscar", on_click=search, key="dictamen-student-search"),
+                    ft.Button(
+                        "Buscando..." if search_busy else "Buscar",
+                        on_click=search,
+                        disabled=search_busy,
+                        key="dictamen-student-search",
+                    ),
                 ]
             ),
             feedback(message, error=is_error),

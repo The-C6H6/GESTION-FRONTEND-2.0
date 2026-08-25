@@ -1,4 +1,8 @@
-from esiqie_dictamenes.core.errors import UnexpectedResponseError
+from esiqie_dictamenes.core.errors import (
+    AuthenticationError,
+    SessionExpiredError,
+    UnexpectedResponseError,
+)
 from esiqie_dictamenes.features.auth.models import Session
 from esiqie_dictamenes.infrastructure.http.api_client import ApiClient
 from esiqie_dictamenes.infrastructure.http.token_store import AuthTokenStore
@@ -25,6 +29,9 @@ class ApiAuthRepository:
             )
             access_token, refresh_token = self._parse_tokens(response)
             self._tokens.replace(access_token, refresh_token)
+        except SessionExpiredError as error:
+            self._tokens.clear()
+            raise AuthenticationError() from error
         except Exception:
             self._tokens.clear()
             raise

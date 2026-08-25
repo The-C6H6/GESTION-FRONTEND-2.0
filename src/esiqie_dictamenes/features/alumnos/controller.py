@@ -1,11 +1,11 @@
 from esiqie_dictamenes.core.errors import ValidationError
 
 from .models import Inscrito
-from .repository import AlumnoRepository
+from .repository import InscritoRepository
 
 
 class AlumnoController:
-    def __init__(self, repository: AlumnoRepository) -> None:
+    def __init__(self, repository: InscritoRepository) -> None:
         self._repository = repository
 
     async def find_inscrito(self, boleta: str) -> Inscrito:

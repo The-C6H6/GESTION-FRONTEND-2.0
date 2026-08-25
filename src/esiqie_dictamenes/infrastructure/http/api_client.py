@@ -5,9 +5,9 @@ import httpx
 from esiqie_dictamenes.core.errors import (
     ApiConnectionError,
     ApiTimeoutError,
-    AuthenticationError,
     AuthorizationError,
     NotFoundError,
+    SessionExpiredError,
     ServiceUnavailableError,
     UnexpectedResponseError,
     ValidationError,
@@ -81,12 +81,12 @@ class ApiClient:
             )
             raise UnexpectedResponseError() from error
 
-    @staticmethod
-    def _raise_for_status(status_code: int) -> None:
+    def _raise_for_status(self, status_code: int) -> None:
         if status_code < 400:
             return
         if status_code == 401:
-            raise AuthenticationError()
+            self._tokens.clear()
+            raise SessionExpiredError()
         if status_code == 403:
             raise AuthorizationError()
         if status_code == 404:
