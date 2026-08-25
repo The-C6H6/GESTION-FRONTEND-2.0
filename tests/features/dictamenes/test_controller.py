@@ -5,7 +5,10 @@ import pytest
 
 from esiqie_dictamenes.core.errors import ValidationError
 from esiqie_dictamenes.features.dictamenes.controller import DictamenController
-from esiqie_dictamenes.features.dictamenes.models import DictamenFilter
+from esiqie_dictamenes.features.dictamenes.models import (
+    DictamenFilter,
+    MateriaReprobada,
+)
 from esiqie_dictamenes.infrastructure.demo.alumno_repository import DemoAlumnoRepository
 from esiqie_dictamenes.infrastructure.demo.dictamen_repository import DemoDictamenRepository
 from esiqie_dictamenes.infrastructure.demo.pdf_generator import DemoPdfGenerator
@@ -38,6 +41,64 @@ def test_reprobados_flow_resolves_student_data_when_searching_by_name():
         "Cálculo diferencial",
         "Termodinámica",
     ]
+
+
+def test_reprobados_flow_uses_the_selected_student_boleta_without_fetching_again():
+    class RejectingInscritoRepository:
+        async def get_inscrito(self, boleta):
+            raise AssertionError("The selected student must not be fetched again.")
+
+    class RecordingReprobadoRepository:
+        def __init__(self):
+            self.boletas = []
+
+        async def search_reprobados(self, boleta=None, nombre=None):
+            self.boletas.append(boleta)
+            return (
+                MateriaReprobada(
+                    "Cálculo diferencial", 20252, boleta, "Ana López Martínez"
+                ),
+            )
+
+    alumno = asyncio.run(DemoAlumnoRepository().get_inscrito("2024320678"))
+    reprobados = RecordingReprobadoRepository()
+    controller = DictamenController(
+        DemoDictamenRepository(),
+        RejectingInscritoRepository(),
+        DemoPdfGenerator(),
+        reprobado_repository=reprobados,
+    )
+
+    result = asyncio.run(
+        controller.find_reprobado_candidate_for_student(alumno, "20271")
+    )
+
+    assert reprobados.boletas == ["2024320678"]
+    assert result.alumno is alumno
+    assert result.total_reprobadas == 1
+    assert [item.materia for item in result.materias] == ["Cálculo diferencial"]
+
+
+def test_reprobados_flow_treats_no_failed_subjects_as_a_valid_candidate():
+    class EmptyReprobadoRepository:
+        async def search_reprobados(self, boleta=None, nombre=None):
+            return ()
+
+    alumno = asyncio.run(DemoAlumnoRepository().get_inscrito("2024320678"))
+    controller = DictamenController(
+        DemoDictamenRepository(),
+        DemoAlumnoRepository(),
+        DemoPdfGenerator(),
+        reprobado_repository=EmptyReprobadoRepository(),
+    )
+
+    result = asyncio.run(
+        controller.find_reprobado_candidate_for_student(alumno, "20271")
+    )
+
+    assert result.alumno is alumno
+    assert result.total_reprobadas == 0
+    assert result.materias == ()
 
 
 def test_create_keeps_director_out_of_the_api_payload_and_in_pdf_context():

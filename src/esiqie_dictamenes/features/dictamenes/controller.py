@@ -4,7 +4,10 @@ from datetime import date
 
 from esiqie_dictamenes.core.errors import NotFoundError, ValidationError
 from esiqie_dictamenes.features.alumnos.models import Inscrito
-from esiqie_dictamenes.features.alumnos.repository import AlumnoRepository
+from esiqie_dictamenes.features.alumnos.repository import (
+    AlumnoRepository,
+    ReprobadoRepository,
+)
 
 from .models import (
     Dictamen,
@@ -32,6 +35,7 @@ class CreatedDictamen:
 class ReprobadoCandidate:
     alumno: Inscrito
     materias: tuple[MateriaElegible, ...]
+    total_reprobadas: int
 
 
 @dataclass(frozen=True)
@@ -46,9 +50,11 @@ class DictamenController:
         repository: DictamenRepository,
         alumno_repository: AlumnoRepository,
         pdf_generator: PdfGenerator,
+        reprobado_repository: ReprobadoRepository | None = None,
     ) -> None:
         self._repository = repository
         self._alumno_repository = alumno_repository
+        self._reprobado_repository = reprobado_repository or alumno_repository
         self._pdf_generator = pdf_generator
 
     async def find_eligible_reprobados(
@@ -63,13 +69,33 @@ class DictamenController:
         if not normalized:
             raise ValidationError("Escribe una boleta o nombre de alumno.")
         if normalized.isdigit():
-            records = await self._alumno_repository.search_reprobados(boleta=normalized)
+            records = await self._reprobado_repository.search_reprobados(
+                boleta=normalized
+            )
         else:
-            records = await self._alumno_repository.search_reprobados(nombre=normalized)
+            records = await self._reprobado_repository.search_reprobados(
+                nombre=normalized
+            )
         if not records:
             raise NotFoundError("No se encontraron materias reprobadas para el alumno.")
         alumno = await self._alumno_repository.get_inscrito(records[0].boleta)
-        return ReprobadoCandidate(alumno, eligible_subjects(period, records))
+        return ReprobadoCandidate(
+            alumno,
+            eligible_subjects(period, records),
+            len(records),
+        )
+
+    async def find_reprobado_candidate_for_student(
+        self, alumno: Inscrito, period: str
+    ) -> ReprobadoCandidate:
+        records = await self._reprobado_repository.search_reprobados(
+            boleta=alumno.boleta
+        )
+        return ReprobadoCandidate(
+            alumno,
+            eligible_subjects(period, records),
+            len(records),
+        )
 
     async def search(self, filters: DictamenFilter) -> Sequence[Dictamen]:
         return await self._repository.search(filters)

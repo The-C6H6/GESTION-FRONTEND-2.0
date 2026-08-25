@@ -5,6 +5,10 @@ import httpx
 from esiqie_dictamenes.core.services import build_demo_services, build_services
 from esiqie_dictamenes.core.settings import ApiSettings
 from tests.infrastructure.http.test_inscrito_repository import INSCRITO_RESPONSE
+from tests.infrastructure.http.test_reprobado_repository import (
+    REPROBADO_ITEM,
+    paginated_response,
+)
 
 
 def test_demo_services_do_not_share_mutable_repositories_between_sessions():
@@ -114,9 +118,24 @@ def test_production_services_share_login_token_with_inscritos():
     assert alumno.nombre == "María Hernández García"
 
 
-def test_production_services_keep_reprobados_in_demo_mode():
-    def reject_network(request: httpx.Request) -> httpx.Response:
-        raise AssertionError("Reprobados must remain in demo mode.")
+def test_production_services_share_login_token_with_reprobados():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/auth/login":
+            return httpx.Response(
+                200,
+                json={
+                    "access_token": "shared-access",
+                    "refresh_token": "shared-refresh",
+                    "token_type": "bearer",
+                },
+            )
+        if request.url.path == "/api/inscritos/2022630000":
+            assert request.headers["Authorization"] == "Bearer shared-access"
+            return httpx.Response(200, json=INSCRITO_RESPONSE)
+        assert request.url.path == "/api/reprobados"
+        assert request.url.params.get("boleta") == "2022630000"
+        assert request.headers["Authorization"] == "Bearer shared-access"
+        return httpx.Response(200, json=paginated_response(REPROBADO_ITEM))
 
     services = build_services(
         settings=ApiSettings(
@@ -125,15 +144,20 @@ def test_production_services_keep_reprobados_in_demo_mode():
             "/api/inscritos/{boleta}",
             "/api/reprobados",
         ),
-        transport=httpx.MockTransport(reject_network),
+        transport=httpx.MockTransport(handler),
+    )
+    asyncio.run(services.auth_controller.login("directivo", "secreto"))
+    alumno = asyncio.run(
+        services.alumno_controller.find_inscrito("2022630000")
     )
 
     candidate = asyncio.run(
-        services.dictamen_controller.find_reprobado_candidate(
-            "2024320678",
-            "20271",
+        services.dictamen_controller.find_reprobado_candidate_for_student(
+            alumno,
+            "20262",
         )
     )
 
-    assert candidate.alumno.boleta == "2024320678"
-    assert candidate.materias
+    assert candidate.alumno is alumno
+    assert candidate.total_reprobadas == 1
+    assert [item.materia for item in candidate.materias] == ["TERMODINAMICA"]

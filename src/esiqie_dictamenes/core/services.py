@@ -17,6 +17,9 @@ from esiqie_dictamenes.infrastructure.http.auth_repository import ApiAuthReposit
 from esiqie_dictamenes.infrastructure.http.inscrito_repository import (
     ApiInscritoRepository,
 )
+from esiqie_dictamenes.infrastructure.http.reprobado_repository import (
+    ApiReprobadoRepository,
+)
 from esiqie_dictamenes.infrastructure.http.token_store import AuthTokenStore
 
 
@@ -73,11 +76,18 @@ def build_services(
         api_client,
         settings.inscrito_path,
     )
+    reprobado_repository = ApiReprobadoRepository(
+        api_client,
+        settings.reprobado_path,
+    )
     return AppServices(
         auth_controller=AuthController(auth_repository),
         user_controller=UserController(user_repository),
         dictamen_controller=DictamenController(
-            dictamen_repository, demo_alumno_repository, pdf_generator
+            dictamen_repository,
+            demo_alumno_repository,
+            pdf_generator,
+            reprobado_repository=reprobado_repository,
         ),
         alumno_controller=AlumnoController(inscrito_repository),
         auth_repository=auth_repository,
