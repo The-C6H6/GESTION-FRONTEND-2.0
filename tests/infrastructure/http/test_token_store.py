@@ -6,10 +6,12 @@ def test_token_store_replaces_and_clears_tokens():
     store.replace("access-secret", "refresh-secret")
 
     assert store.access_token == "access-secret"
+    assert store.has_tokens is True
 
     store.clear()
 
     assert store.access_token is None
+    assert store.has_tokens is False
 
 
 def test_token_store_replaces_an_existing_session():

@@ -26,6 +26,7 @@ def _client(handler, tokens=None):
             "http://api.test",
             "/api/auth/login",
             "/api/inscritos/{boleta}",
+            "/api/reprobados",
         ),
         tokens or AuthTokenStore(),
         transport=httpx.MockTransport(handler),
@@ -61,6 +62,23 @@ def test_api_client_omits_authorization_without_a_token():
     result = asyncio.run(_client(handler).request_json("GET", "/resource"))
 
     assert result == {"ok": True}
+
+
+def test_api_client_sends_query_parameters_without_changing_the_path():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/reprobados"
+        assert request.url.params.get("boleta") == "2022630000"
+        return httpx.Response(200, json={"items": []})
+
+    result = asyncio.run(
+        _client(handler).request_json(
+            "GET",
+            "/api/reprobados",
+            params={"boleta": "2022630000"},
+        )
+    )
+
+    assert result == {"items": []}
 
 
 @pytest.mark.parametrize(

@@ -32,6 +32,7 @@ def test_production_services_use_api_login_and_store_tokens():
             "http://api.test",
             "/api/auth/login",
             "/api/inscritos/{boleta}",
+            "/api/reprobados",
         ),
         transport=httpx.MockTransport(handler),
     )
@@ -53,6 +54,7 @@ def test_production_services_keep_user_registration_in_demo_mode():
             "http://api.test",
             "/api/auth/login",
             "/api/inscritos/{boleta}",
+            "/api/reprobados",
         ),
         transport=httpx.MockTransport(reject_network),
     )
@@ -99,6 +101,7 @@ def test_production_services_share_login_token_with_inscritos():
             "http://api.test",
             "/api/auth/login",
             "/api/inscritos/{boleta}",
+            "/api/reprobados",
         ),
         transport=httpx.MockTransport(handler),
     )
@@ -120,6 +123,7 @@ def test_production_services_keep_reprobados_in_demo_mode():
             "http://api.test",
             "/api/auth/login",
             "/api/inscritos/{boleta}",
+            "/api/reprobados",
         ),
         transport=httpx.MockTransport(reject_network),
     )

@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Mapping
 
 import httpx
 
@@ -36,6 +37,7 @@ class ApiClient:
         path: str,
         *,
         json: object | None = None,
+        params: Mapping[str, str] | None = None,
     ) -> object:
         headers = {"Accept": "application/json"}
         if self._tokens.access_token is not None:
@@ -51,6 +53,7 @@ class ApiClient:
                     method,
                     path,
                     json=json,
+                    params=params,
                     headers=headers,
                 )
         except httpx.TimeoutException as error:
