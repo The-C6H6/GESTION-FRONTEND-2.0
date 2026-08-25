@@ -55,17 +55,15 @@ class ApiClient:
                 )
         except httpx.TimeoutException as error:
             logger.warning(
-                "API request timed out: method=%s path=%s error=%s",
+                "API request timed out: method=%s error=%s",
                 method,
-                path,
                 type(error).__name__,
             )
             raise ApiTimeoutError() from error
         except httpx.RequestError as error:
             logger.warning(
-                "API request failed: method=%s path=%s error=%s",
+                "API request failed: method=%s error=%s",
                 method,
-                path,
                 type(error).__name__,
             )
             raise ApiConnectionError() from error
@@ -75,9 +73,8 @@ class ApiClient:
             return response.json()
         except ValueError as error:
             logger.warning(
-                "API returned invalid JSON: method=%s path=%s",
+                "API returned invalid JSON: method=%s",
                 method,
-                path,
             )
             raise UnexpectedResponseError() from error
 

@@ -4,6 +4,7 @@
 - Runtime API settings load `API_BASE_URL` (or legacy `IP_ADDRESS`), `RUTA_LOGIN`, and `RUTA_VISUALIZAR_INSCRITOS` through python-dotenv. Unit tests inject settings and never require `.env` or the backend.
 - Access and refresh tokens live only in `AuthTokenStore`, are omitted from repr/logs, and are cleared before login, on logout, and on API `401`. A `401` also invalidates the Flet session and redirects to `/login`.
 - `ApiInscritoRepository` uses `GET /api/inscritos/{boleta}` and maps the complete API response to `Inscrito`. Both enrolled-student screens show a loading state and reuse the logged-in Bearer token.
+- API warning logs intentionally omit request paths because enrolled-student URLs contain the student's boleta.
 - API payload data and PDF-only context are separate. Director and eligible subjects belong to `PdfRequest`, not `DictamenCreate`.
 - Current-period format is five digits ending in `1` or `2`. Eligible failed subjects satisfy `19 <= current - failed < 29` and cannot be deselected.
 - HTTP adapters for registration, failed subjects, rulings, and the real PDF remain intentionally unimplemented. `/api/auth/me` and `/api/auth/refresh` are also deferred. Failed-subject lookup is the recommended next API integration.

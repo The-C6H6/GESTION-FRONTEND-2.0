@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 
 import httpx
 import pytest
@@ -108,6 +109,21 @@ def test_api_client_maps_timeouts_separately():
 
     with pytest.raises(ApiTimeoutError):
         asyncio.run(_client(handler).request_json("GET", "/resource"))
+
+
+def test_api_client_does_not_log_sensitive_request_paths(caplog):
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("slow response", request=request)
+
+    with caplog.at_level(logging.WARNING), pytest.raises(ApiTimeoutError):
+        asyncio.run(
+            _client(handler).request_json(
+                "GET", "/api/inscritos/2022630000"
+            )
+        )
+
+    assert "API request timed out" in caplog.text
+    assert "2022630000" not in caplog.text
 
 
 def test_api_client_rejects_non_json_responses():
