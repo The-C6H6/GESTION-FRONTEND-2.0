@@ -3,7 +3,7 @@ name = "esiqie-dictamenes"
 version = "0.1.0"
 requires-python = ">=3.13"
 dependencies = [
-    "flet>=0.86.5",
+    "flet[all]>=0.86.5",
 ]
 
 [dependency-groups]
@@ -14,3 +14,7 @@ dev = [
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+
+[tool.flet.app]
+path = "src"
+module = "main.py"
