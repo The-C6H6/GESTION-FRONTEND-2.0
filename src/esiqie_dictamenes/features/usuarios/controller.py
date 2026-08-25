@@ -1,10 +1,11 @@
 from esiqie_dictamenes.core.errors import ValidationError
 from esiqie_dictamenes.features.auth.models import RegisteredUser
-from esiqie_dictamenes.features.auth.repository import AuthRepository
+
+from .repository import UserRepository
 
 
 class UserController:
-    def __init__(self, repository: AuthRepository) -> None:
+    def __init__(self, repository: UserRepository) -> None:
         self._repository = repository
 
     async def register(

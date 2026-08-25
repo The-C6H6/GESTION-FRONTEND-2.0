@@ -1,11 +1,7 @@
 from typing import Protocol
 
-from .models import RegisteredUser, Session
+from .models import Session
 
 
-class AuthRepository(Protocol):
+class LoginRepository(Protocol):
     async def login(self, username: str, password: str) -> Session: ...
-
-    async def register(
-        self, username: str, password: str, is_admin: bool
-    ) -> RegisteredUser: ...

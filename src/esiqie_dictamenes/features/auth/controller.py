@@ -1,11 +1,11 @@
 from esiqie_dictamenes.core.errors import ValidationError
 
 from .models import Session
-from .repository import AuthRepository
+from .repository import LoginRepository
 
 
 class AuthController:
-    def __init__(self, repository: AuthRepository) -> None:
+    def __init__(self, repository: LoginRepository) -> None:
         self._repository = repository
 
     async def login(self, username: str, password: str) -> Session:
