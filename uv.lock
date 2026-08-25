@@ -236,6 +236,8 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "flet", extra = ["all"] },
+    { name = "httpx" },
+    { name = "python-dotenv" },
 ]
 
 [package.dev-dependencies]
@@ -244,7 +246,11 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "flet", extras = ["all"], specifier = ">=0.86.5" }]
+requires-dist = [
+    { name = "flet", extras = ["all"], specifier = ">=0.86.5" },
+    { name = "httpx", specifier = ">=0.28.1" },
+    { name = "python-dotenv", specifier = ">=1.2.3" },
+]
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest", specifier = ">=9.1.1" }]
