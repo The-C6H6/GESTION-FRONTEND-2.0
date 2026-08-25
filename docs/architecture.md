@@ -2,7 +2,7 @@
 
 ## Objetivo del esqueleto
 
-La aplicación es un frontend Flet web con navegación declarativa y sesión en memoria. La autenticación consulta el backend real; registro, alumnos, dictámenes y generación PDF permanecen en modo demostración. Los siguientes adaptadores HTTP podrán sustituir a los demo sin cambiar las vistas.
+La aplicación es un frontend Flet web con navegación declarativa y sesión en memoria. La autenticación y la consulta de alumnos inscritos usan el backend real; registro, reprobados, dictámenes y generación PDF permanecen en modo demostración. Los siguientes adaptadores HTTP podrán sustituir a los demo sin cambiar las vistas.
 
 ## Capas y dependencias
 
@@ -17,7 +17,7 @@ Feature controllers
              ▲
              │
 Infrastructure adapters
-    ├── HTTP: login API
+    ├── HTTP: login and enrolled-student API
     └── Demo: remaining modules and PDF
 ```
 
@@ -34,19 +34,20 @@ Infrastructure adapters
 
 La sesión es deliberadamente efímera. `ApiAuthRepository` envía las credenciales al backend, valida `access_token` y `refresh_token` y crea una sesión no demo. La respuesta actual no incluye identidad ni permisos, por lo que el frontend conserva el nombre introducido y usa `is_admin=False` hasta integrar `/api/auth/me`.
 
-`AuthTokenStore` mantiene ambos tokens únicamente en memoria. `ApiClient` consulta el access token para construir futuros headers Bearer y el cierre de sesión limpia el almacén antes de abandonar el área privada. `/api/auth/refresh` está documentado, pero todavía no se consume.
+`AuthTokenStore` mantiene ambos tokens únicamente en memoria. `ApiClient` consulta el access token para construir los headers Bearer del login y de inscritos. El cierre de sesión manual limpia el almacén antes de abandonar el área privada. Una respuesta `401` también borra ambos tokens, invalida la sesión Flet y redirige a `/login`. `/api/auth/refresh` está documentado, pero todavía no se consume.
 
 ## Contratos para la API
 
 - `LoginRepository`: autenticación con `username` y `password`.
 - `UserRepository`: registro de `username`, `password` e `is_admin`; continúa con adaptador demo.
 - `DictamenRepository`: búsqueda por boleta o año, consulta por clave, creación, modificación de `dictaminacion` y eliminación por claves.
-- `AlumnoRepository`: consulta de inscritos y búsqueda de materias reprobadas.
+- `InscritoRepository`: consulta de un inscrito por boleta; usa `ApiInscritoRepository`.
+- `ReprobadoRepository`: búsqueda de materias reprobadas; continúa con adaptador demo.
 - `PdfGenerator`: recibe `PdfRequest` y devuelve `GeneratedDocument`.
 
-`core/settings.py` carga `.env` en tiempo de ejecución. Prefiere `API_BASE_URL`, acepta `IP_ADDRESS` por compatibilidad y requiere `RUTA_LOGIN`. Las pruebas inyectan un mapping explícito y nunca dependen de `.env` ni del backend real.
+`core/settings.py` carga `.env` en tiempo de ejecución. Prefiere `API_BASE_URL`, acepta `IP_ADDRESS` por compatibilidad y requiere `RUTA_LOGIN` y `RUTA_VISUALIZAR_INSCRITOS`. La ruta de inscritos debe contener exactamente un marcador `{boleta}`. Las pruebas inyectan un mapping explícito y nunca dependen de `.env` ni del backend real.
 
-`ApiClient` centraliza URL base, timeout, JSON, headers, Bearer Token y traducción de errores. Las vistas reciben errores de aplicación con mensajes comprensibles; no construyen requests ni muestran códigos HTTP.
+`ApiClient` centraliza URL base, timeout, JSON, headers, Bearer Token y traducción de errores. `ApiInscritoRepository` codifica la boleta en la ruta y convierte la respuesta completa de la API al modelo `Inscrito`. Las vistas reciben errores de aplicación con mensajes comprensibles; no construyen requests ni muestran códigos HTTP.
 
 ## Datos de API y datos de PDF
 
@@ -71,6 +72,6 @@ La selección se calcula en el controlador y la vista solo la presenta. Las mate
 
 ## Sustitución futura de adaptadores
 
-La composición ocurre en `core/services.py`. `build_services()` usa `ApiAuthRepository` únicamente para login y mantiene adaptadores demo para el resto. `build_demo_services()` continúa disponible para pruebas aisladas.
+La composición ocurre en `core/services.py`. `build_services()` comparte un `ApiClient` y un `AuthTokenStore` entre `ApiAuthRepository` y `ApiInscritoRepository`. El controlador de reprobados conserva un `DemoAlumnoRepository` independiente, y los demás módulos siguen en demostración. `build_demo_services()` continúa disponible para pruebas aisladas.
 
-Los siguientes adaptadores HTTP deben reutilizar `ApiClient` y sus errores en lugar de duplicar requests. La generación real seguirá el mismo patrón con una implementación de `PdfGenerator` basada en las referencias de `referencias/`.
+El siguiente adaptador recomendado es la consulta de reprobados, porque alimenta la selección de materias antes de conectar la creación real de dictámenes. Debe reutilizar `ApiClient` y sus errores en lugar de duplicar requests. La generación real seguirá el mismo patrón con una implementación de `PdfGenerator` basada en las referencias de `referencias/`.
