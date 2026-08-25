@@ -7,6 +7,7 @@ from esiqie_dictamenes.core.theme import SURFACE, build_theme
 def main(page: ft.Page) -> None:
     page.title = "ESIQIE-DICTÁMENES"
     page.theme = build_theme()
+    page.theme_mode = ft.ThemeMode.LIGHT
     page.bgcolor = SURFACE
     page.padding = 0
     page.render(App)

@@ -13,7 +13,7 @@ def _nav_button(label: str, path: str) -> ft.Control:
             color="#FFFFFF",
             weight=ft.FontWeight.BOLD if active else ft.FontWeight.NORMAL,
         ),
-        bgcolor="#FFFFFF24" if active else None,
+        bgcolor="#24FFFFFF" if active else None,
         border_radius=8,
         padding=ft.Padding.symmetric(horizontal=16, vertical=12),
         on_click=lambda: ft.context.page.navigate(path),
@@ -41,7 +41,7 @@ def AppShell(content: ft.Control) -> ft.Control:
                         ft.Text("ESIQIE\nDICTÁMENES", color="#FFFFFF", weight=ft.FontWeight.BOLD),
                     ]
                 ),
-                ft.Divider(color="#FFFFFF30", height=28),
+                ft.Divider(color="#30FFFFFF", height=28),
                 _nav_button("Inicio", RoutePath.DASHBOARD),
                 _nav_button("Buscar dictámenes", RoutePath.DICTAMENES),
                 _nav_button("Dictaminar", RoutePath.NUEVO_DICTAMEN),
