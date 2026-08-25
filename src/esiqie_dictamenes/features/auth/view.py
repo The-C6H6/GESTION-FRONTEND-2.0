@@ -52,7 +52,7 @@ def LoginView() -> ft.Control:
                     content=ft.Column(
                         [
                             ft.Text("Iniciar sesión", size=30, weight=ft.FontWeight.BOLD, color=ESIQIE_BLUE),
-                            ft.Text("Usa cualquier usuario y contraseña en modo demostración."),
+                            ft.Text("Ingresa tus credenciales institucionales."),
                             feedback(message, error=True),
                             ft.TextField(
                                 label="Usuario",

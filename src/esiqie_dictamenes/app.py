@@ -2,7 +2,7 @@ import flet as ft
 
 from esiqie_dictamenes.core.context import AppContext, AppContextValue, use_app_context
 from esiqie_dictamenes.core.routes import RoutePath
-from esiqie_dictamenes.core.services import build_demo_services
+from esiqie_dictamenes.core.services import build_services
 from esiqie_dictamenes.features.alumnos.views.inscritos import InscritoSearchView
 from esiqie_dictamenes.features.auth.view import LoginView
 from esiqie_dictamenes.features.dashboard.view import DashboardView
@@ -82,7 +82,7 @@ def _app_router() -> ft.Control:
 @ft.component
 def App() -> ft.Control:
     session, set_session = ft.use_state(None)
-    services, _ = ft.use_state(build_demo_services)
+    services, _ = ft.use_state(build_services)
     context = AppContextValue(
         services=services,
         session=session,

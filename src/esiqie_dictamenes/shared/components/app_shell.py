@@ -3,6 +3,13 @@ import flet as ft
 from esiqie_dictamenes.core.context import use_app_context
 from esiqie_dictamenes.core.routes import RoutePath
 from esiqie_dictamenes.core.theme import ESIQIE_BLUE, ESIQIE_BLUE_DARK, SURFACE
+from esiqie_dictamenes.features.auth.models import Session
+
+
+def session_status_label(session: Session | None) -> str:
+    if session is not None and session.is_demo:
+        return "Modo demostración"
+    return "Acceso API · módulos restantes en demostración"
 
 
 def _nav_button(label: str, path: str) -> ft.Control:
@@ -26,6 +33,7 @@ def AppShell(content: ft.Control) -> ft.Control:
     context = use_app_context()
 
     def logout() -> None:
+        context.services.clear_authentication()
         context.set_session(None)
         ft.context.page.navigate(RoutePath.LOGIN)
 
@@ -69,7 +77,11 @@ def AppShell(content: ft.Control) -> ft.Control:
             [
                 ft.Text("Sistema de Gestión de Dictámenes", weight=ft.FontWeight.BOLD, color=ESIQIE_BLUE),
                 ft.Container(expand=True),
-                ft.Text("Modo demostración", color="#6C1538", weight=ft.FontWeight.BOLD),
+                ft.Text(
+                    session_status_label(context.session),
+                    color="#6C1538",
+                    weight=ft.FontWeight.BOLD,
+                ),
                 ft.Text(username),
                 ft.Image(src="ipn_logo.jpg", width=42, height=42),
             ]
