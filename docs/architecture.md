@@ -2,7 +2,7 @@
 
 ## Objetivo del esqueleto
 
-La aplicación es un frontend Flet web con navegación declarativa, sesión en memoria y datos demostrativos. No consulta el backend ni genera un PDF binario todavía. Los adaptadores reales podrán reemplazar a los adaptadores demo sin cambiar las vistas.
+La aplicación es un frontend Flet web con navegación declarativa y sesión en memoria. La autenticación consulta el backend real; registro, alumnos, dictámenes y generación PDF permanecen en modo demostración. Los siguientes adaptadores HTTP podrán sustituir a los demo sin cambiar las vistas.
 
 ## Capas y dependencias
 
@@ -16,12 +16,15 @@ Feature controllers
     └── PDF contract
              ▲
              │
-Demo infrastructure adapters
+Infrastructure adapters
+    ├── HTTP: login API
+    └── Demo: remaining modules and PDF
 ```
 
 - `core/` compone rutas, sesión, tema y servicios compartidos.
 - `features/` agrupa modelos, contratos, controladores y vistas por caso de uso.
 - `infrastructure/demo/` implementa contratos con datos en memoria.
+- `infrastructure/http/` centraliza el cliente asíncrono, el login real y los tokens efímeros.
 - `shared/components/` contiene controles visuales reutilizables, sin reglas de negocio.
 - Las vistas dependen de controladores, nunca de adaptadores concretos.
 
@@ -29,16 +32,21 @@ Demo infrastructure adapters
 
 `ft.Router` declara `/login` como ruta pública. El resto de las rutas se renderiza dentro de un layout privado con navegación lateral y encabezado común. Si no existe una sesión en memoria, el layout redirige a `/login`. Cerrar sesión borra ese estado y vuelve al acceso.
 
-La sesión es deliberadamente efímera. El adaptador demo acepta cualquier usuario y contraseña no vacíos y marca la sesión como “Modo demostración”.
+La sesión es deliberadamente efímera. `ApiAuthRepository` envía las credenciales al backend, valida `access_token` y `refresh_token` y crea una sesión no demo. La respuesta actual no incluye identidad ni permisos, por lo que el frontend conserva el nombre introducido y usa `is_admin=False` hasta integrar `/api/auth/me`.
+
+`AuthTokenStore` mantiene ambos tokens únicamente en memoria. `ApiClient` consulta el access token para construir futuros headers Bearer y el cierre de sesión limpia el almacén antes de abandonar el área privada. `/api/auth/refresh` está documentado, pero todavía no se consume.
 
 ## Contratos para la API
 
-- `AuthRepository`: autenticación y registro de `username`, `password` e `is_admin`.
+- `LoginRepository`: autenticación con `username` y `password`.
+- `UserRepository`: registro de `username`, `password` e `is_admin`; continúa con adaptador demo.
 - `DictamenRepository`: búsqueda por boleta o año, consulta por clave, creación, modificación de `dictaminacion` y eliminación por claves.
 - `AlumnoRepository`: consulta de inscritos y búsqueda de materias reprobadas.
 - `PdfGenerator`: recibe `PdfRequest` y devuelve `GeneratedDocument`.
 
-Las variables requeridas por los futuros adaptadores HTTP están documentadas en `.env.example`. El esqueleto no carga `.env` ni realiza llamadas de red.
+`core/settings.py` carga `.env` en tiempo de ejecución. Prefiere `API_BASE_URL`, acepta `IP_ADDRESS` por compatibilidad y requiere `RUTA_LOGIN`. Las pruebas inyectan un mapping explícito y nunca dependen de `.env` ni del backend real.
+
+`ApiClient` centraliza URL base, timeout, JSON, headers, Bearer Token y traducción de errores. Las vistas reciben errores de aplicación con mensajes comprensibles; no construyen requests ni muestran códigos HTTP.
 
 ## Datos de API y datos de PDF
 
@@ -63,4 +71,6 @@ La selección se calcula en el controlador y la vista solo la presenta. Las mate
 
 ## Sustitución futura de adaptadores
 
-La composición ocurre en `core/services.py`. Para conectar la API se añadirán implementaciones HTTP asíncronas de los repositorios y se inyectarán desde una nueva fábrica. La generación real seguirá el mismo patrón con una implementación de `PdfGenerator` basada en las referencias de `referencias/`.
+La composición ocurre en `core/services.py`. `build_services()` usa `ApiAuthRepository` únicamente para login y mantiene adaptadores demo para el resto. `build_demo_services()` continúa disponible para pruebas aisladas.
+
+Los siguientes adaptadores HTTP deben reutilizar `ApiClient` y sus errores en lugar de duplicar requests. La generación real seguirá el mismo patrón con una implementación de `PdfGenerator` basada en las referencias de `referencias/`.

@@ -1,6 +1,6 @@
 # ESIQIE-DICTÁMENES
 
-Frontend Flet para gestionar dictámenes de estudiantes de ESIQIE. El esqueleto actual es navegable y trabaja exclusivamente con sesión y datos simulados; no consume todavía el backend ni descarga PDFs ficticios.
+Frontend Flet para gestionar dictámenes de estudiantes de ESIQIE. El login consume la API real; registro de usuarios, alumnos, dictámenes y generación PDF continúan con adaptadores de demostración.
 
 ## Requisitos
 
@@ -17,6 +17,15 @@ uv sync
 
 `uv` crea y mantiene `.venv`. No es necesario activarlo para usar los comandos siguientes.
 
+## Configuración de la API
+
+La ejecución local carga `.env` mediante `python-dotenv`. Debe definir:
+
+- `API_BASE_URL` o, por compatibilidad, `IP_ADDRESS`;
+- `RUTA_LOGIN`.
+
+Consulta `.env.example` para las rutas disponibles. No incluyas credenciales ni tokens en archivos versionados.
+
 ## Ejecutar pruebas
 
 ```powershell
@@ -29,11 +38,11 @@ uv run pytest
 uv run flet run --web --port 8501 src/main.py
 ```
 
-Abre `http://127.0.0.1:8501`. En modo demostración se puede iniciar sesión con cualquier usuario y contraseña no vacíos.
+Abre `http://127.0.0.1:8501`. El backend configurado debe estar disponible para iniciar sesión con credenciales válidas.
 
 ## Alcance actual
 
-- Login, cierre de sesión, navegación privada y página 404.
+- Login real mediante API, tokens efímeros en memoria, cierre de sesión, navegación privada y página 404.
 - Búsqueda, creación, eliminación y modificación simulada de dictámenes.
 - Simulación del contexto de generación PDF, incluido el nombre del director.
 - Búsqueda de inscritos y selección automática de materias reprobadas elegibles.
