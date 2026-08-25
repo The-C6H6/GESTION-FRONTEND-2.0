@@ -183,3 +183,12 @@ def test_non_eligible_failed_subjects_keep_the_period_rule_message():
     message = crear._failed_subjects_empty_message(2)
 
     assert message == "No hay materias que cumplan la regla 19 ≤ diferencia < 29."
+
+
+def test_create_button_is_disabled_while_a_student_search_is_running():
+    button = crear._build_create_button(
+        search_busy=True,
+        on_click=lambda: None,
+    )
+
+    assert button.disabled is True

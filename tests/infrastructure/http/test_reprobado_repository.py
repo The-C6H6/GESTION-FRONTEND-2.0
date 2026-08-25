@@ -120,6 +120,34 @@ def test_reprobado_repository_treats_an_empty_page_as_success():
     assert result == ()
 
 
+def test_reprobado_repository_rejects_an_item_from_another_student():
+    crossed_item = {**REPROBADO_ITEM, "Boleta": "9999999999"}
+    repository, _ = _repository(
+        lambda request: httpx.Response(
+            200,
+            json=paginated_response(crossed_item),
+        )
+    )
+
+    with pytest.raises(UnexpectedResponseError):
+        asyncio.run(repository.search_reprobados(boleta="2022630000"))
+
+
+def test_reprobado_repository_rejects_a_partial_page():
+    partial_page = {
+        "total": 2,
+        "skip": 0,
+        "limit": 1,
+        "items": [REPROBADO_ITEM],
+    }
+    repository, _ = _repository(
+        lambda request: httpx.Response(200, json=partial_page)
+    )
+
+    with pytest.raises(UnexpectedResponseError):
+        asyncio.run(repository.search_reprobados(boleta="2022630000"))
+
+
 @pytest.mark.parametrize(
     ("status_code", "expected_error"),
     [

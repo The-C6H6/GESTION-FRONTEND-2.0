@@ -21,29 +21,49 @@ class ApiReprobadoRepository:
             self._path,
             params={"boleta": normalized_boleta},
         )
-        return self._parse_page(response)
+        return self._parse_page(response, expected_boleta=normalized_boleta)
 
     @classmethod
-    def _parse_page(cls, response: object) -> tuple[MateriaReprobada, ...]:
+    def _parse_page(
+        cls,
+        response: object,
+        expected_boleta: str,
+    ) -> tuple[MateriaReprobada, ...]:
         if not isinstance(response, dict):
             raise UnexpectedResponseError()
         try:
-            cls._integer(response, "total")
-            cls._integer(response, "skip")
-            cls._integer(response, "limit")
+            total = cls._integer(response, "total")
+            skip = cls._integer(response, "skip")
+            limit = cls._integer(response, "limit")
             items = response["items"]
             if not isinstance(items, list):
                 raise TypeError("items")
-            return tuple(cls._parse_item(item) for item in items)
+            if (
+                total < 0
+                or skip != 0
+                or limit < len(items)
+                or total != len(items)
+            ):
+                raise ValueError("partial page")
+            return tuple(
+                cls._parse_item(item, expected_boleta=expected_boleta)
+                for item in items
+            )
         except (KeyError, TypeError, ValueError) as error:
             raise UnexpectedResponseError() from error
 
     @classmethod
-    def _parse_item(cls, item: object) -> MateriaReprobada:
+    def _parse_item(
+        cls,
+        item: object,
+        expected_boleta: str,
+    ) -> MateriaReprobada:
         if not isinstance(item, dict):
             raise TypeError("item")
 
         boleta = cls._string(item, "Boleta")
+        if boleta != expected_boleta:
+            raise ValueError("Boleta")
         nombre = cls._string(item, "Nombre")
         cls._string(item, "Turno")
         cls._optional_string(item, "E_Mail_Personal")

@@ -74,6 +74,15 @@ def _failed_subjects_empty_message(total_reprobadas: int) -> str:
     return "No hay materias que cumplan la regla 19 ≤ diferencia < 29."
 
 
+def _build_create_button(search_busy: bool, on_click: Callable) -> ft.Button:
+    return ft.Button(
+        "Dictaminar y generar PDF",
+        on_click=on_click,
+        disabled=search_busy,
+        key="dictamen-create",
+    )
+
+
 def _as_date(value: date | datetime) -> date:
     if isinstance(value, datetime):
         return value.date()
@@ -276,7 +285,7 @@ def DictamenCreateView() -> ft.Control:
                 key="dictamen-text",
             ),
             ft.Row(
-                [ft.Button("Dictaminar y generar PDF", on_click=create, key="dictamen-create")],
+                [_build_create_button(search_busy, create)],
                 alignment=ft.MainAxisAlignment.END,
             ),
         ],
