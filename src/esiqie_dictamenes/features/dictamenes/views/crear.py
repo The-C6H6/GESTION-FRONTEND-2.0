@@ -1,13 +1,44 @@
-from datetime import date
+from collections.abc import Callable
+from datetime import date, datetime
 
 import flet as ft
 
 from esiqie_dictamenes.core.context import use_app_context
 from esiqie_dictamenes.core.errors import to_user_message
+from esiqie_dictamenes.features.dictamenes.pdf import format_session_date
 from esiqie_dictamenes.features.dictamenes.periodos import current_period
 from esiqie_dictamenes.features.alumnos.views.reprobados import eligible_subjects_table
 from esiqie_dictamenes.shared.components.feedback import feedback
 from esiqie_dictamenes.shared.components.page_header import page_header
+
+
+def _as_date(value: date | datetime) -> date:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    raise ValueError("DatePicker must provide a date value.")
+
+
+def _build_session_date_picker(
+    value: date,
+    on_change: Callable,
+    on_dismiss: Callable,
+) -> ft.DatePicker:
+    return ft.DatePicker(
+        value=value,
+        current_date=date.today(),
+        first_date=date(2000, 1, 1),
+        last_date=date(2100, 12, 31),
+        locale=ft.Locale("es", "MX"),
+        entry_mode=ft.DatePickerEntryMode.CALENDAR_ONLY,
+        help_text="Selecciona la fecha de sesión",
+        cancel_text="Cancelar",
+        confirm_text="Aceptar",
+        on_change=on_change,
+        on_dismiss=on_dismiss,
+        key="dictamen-session-date-picker",
+    )
 
 
 @ft.component
@@ -20,8 +51,22 @@ def DictamenCreateView() -> ft.Control:
     materias, set_materias = ft.use_state(())
     director, set_director = ft.use_state("")
     dictaminacion, set_dictaminacion = ft.use_state("")
+    fecha_sesion, set_fecha_sesion = ft.use_state(date.today())
+    show_date_picker, set_show_date_picker = ft.use_state(False)
     message, set_message = ft.use_state("")
     is_error, set_is_error = ft.use_state(False)
+
+    def select_session_date(event: ft.Event[ft.DatePicker]) -> None:
+        if event.control.value is not None:
+            set_fecha_sesion(_as_date(event.control.value))
+        set_show_date_picker(False)
+
+    picker = _build_session_date_picker(
+        fecha_sesion,
+        on_change=select_session_date,
+        on_dismiss=lambda _event: set_show_date_picker(False),
+    )
+    ft.use_dialog(picker if show_date_picker else None)
 
     async def search() -> None:
         try:
@@ -52,6 +97,7 @@ def DictamenCreateView() -> ft.Control:
                 director=director,
                 materias=materias,
                 reference=date.today(),
+                fecha_sesion=fecha_sesion,
             )
             set_message(
                 f"Dictamen {result.dictamen.clave} creado. PDF {result.document.filename} simulado."
@@ -119,6 +165,23 @@ def DictamenCreateView() -> ft.Control:
                 value=director,
                 on_change=lambda e: set_director(e.control.value),
                 key="dictamen-director",
+            ),
+            ft.Row(
+                [
+                    ft.TextField(
+                        label="Fecha de sesión",
+                        value=format_session_date(fecha_sesion),
+                        read_only=True,
+                        expand=True,
+                        key="dictamen-session-date",
+                    ),
+                    ft.Button(
+                        "Elegir fecha",
+                        icon=ft.Icons.CALENDAR_MONTH,
+                        on_click=lambda: set_show_date_picker(True),
+                        key="dictamen-session-date-open",
+                    ),
+                ]
             ),
             ft.TextField(
                 label="Dictaminación",

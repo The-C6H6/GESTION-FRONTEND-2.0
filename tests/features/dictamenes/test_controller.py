@@ -51,6 +51,7 @@ def test_create_keeps_director_out_of_the_api_payload_and_in_pdf_context():
             director="Dr. Dirección Escolar",
             materias=(),
             reference=date(2026, 8, 24),
+            fecha_sesion=date(2026, 12, 11),
         )
     )
 
@@ -58,7 +59,27 @@ def test_create_keeps_director_out_of_the_api_payload_and_in_pdf_context():
     assert result.dictamen.anio == 2026
     assert result.document.filename == "2024320678_dictamen.pdf"
     assert result.pdf_request.director == "Dr. Dirección Escolar"
+    assert result.pdf_request.fecha_sesion == date(2026, 12, 11)
+    assert result.api_payload.fecha == date(2026, 8, 24)
     assert not hasattr(result.api_payload, "director")
+    assert not hasattr(result.api_payload, "fecha_sesion")
+
+
+def test_create_rejects_a_free_text_session_date():
+    controller = build_controller()
+    alumno = asyncio.run(DemoAlumnoRepository().get_inscrito("2024320678"))
+
+    with pytest.raises(ValidationError, match="fecha de sesión"):
+        asyncio.run(
+            controller.create(
+                alumno=alumno,
+                dictaminacion="Artículo 56",
+                director="Dr. Dirección Escolar",
+                materias=(),
+                reference=date(2026, 8, 24),
+                fecha_sesion="11 DE DICIEMBRE",
+            )
+        )
 
 
 def test_delete_rejects_an_empty_selection():

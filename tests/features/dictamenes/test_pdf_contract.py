@@ -1,6 +1,9 @@
 import asyncio
 from datetime import date
 
+import pytest
+
+from esiqie_dictamenes.features.dictamenes import pdf
 from esiqie_dictamenes.features.dictamenes.models import (
     Dictamen,
     MateriaElegible,
@@ -20,6 +23,7 @@ def test_demo_pdf_generator_reports_simulation_without_fake_pdf_download():
             dictaminacion="Artículo 56",
         ),
         director="Dr. Nombre Apellido",
+        fecha_sesion=date(2026, 12, 11),
         materias=(MateriaElegible("Cálculo diferencial", 20252, 19),),
     )
 
@@ -28,3 +32,42 @@ def test_demo_pdf_generator_reports_simulation_without_fake_pdf_download():
     assert document.filename == "2024320678_dictamen.pdf"
     assert document.content == b""
     assert document.is_simulation is True
+    assert document.preview_text.endswith(
+        "EN LA SESIÓN ORDINARIA CELEBRADA EL 11 DE DICIEMBRE."
+    )
+
+
+@pytest.mark.parametrize(
+    ("month", "name"),
+    [
+        (1, "ENERO"),
+        (2, "FEBRERO"),
+        (3, "MARZO"),
+        (4, "ABRIL"),
+        (5, "MAYO"),
+        (6, "JUNIO"),
+        (7, "JULIO"),
+        (8, "AGOSTO"),
+        (9, "SEPTIEMBRE"),
+        (10, "OCTUBRE"),
+        (11, "NOVIEMBRE"),
+        (12, "DICIEMBRE"),
+    ],
+)
+def test_session_date_formatter_uses_spanish_month_without_year(month, name):
+    result = pdf.format_session_date(date(2026, month, 11))
+
+    assert result == f"11 DE {name}"
+    assert "2026" not in result
+
+
+def test_session_paragraph_inserts_the_formatted_date_once():
+    result = pdf.build_session_paragraph(date(2026, 12, 11))
+
+    assert result == (
+        "CON FUNDAMENTO EN LOS ARTÍCULOS 52, 55, 57 Y 60 DEL REGLAMENTO "
+        "GENERAL DE ESTUDIOS DEL INSTITUTO POLITÉCNICO NACIONAL, LE COMUNICO "
+        "EL RESULTADO DEL DICTAMEN RELATIVO A SU SOLICITUD EMITIDO POR LA "
+        "COMISIÓN DE SITUACIÓN ESCOLAR DEL CONSEJO TÉCNICO CONSULTIVO ESCOLAR, "
+        "EN LA SESIÓN ORDINARIA CELEBRADA EL 11 DE DICIEMBRE."
+    )

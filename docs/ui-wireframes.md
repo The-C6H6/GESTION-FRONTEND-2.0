@@ -57,12 +57,13 @@ La búsqueda alterna entre boleta y año. Cada dictamen conserva su propia fila 
 │   Termodinámica    periodo 20243   diferencia 28                           │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │ Nombre del director [...................................................]   │
+│ Fecha de sesión     [ 11 DE DICIEMBRE ] [ Elegir fecha ]                  │
 │ Dictaminación       [ textfield multilínea.............................]   │
 │                                      [ Dictaminar y generar PDF ]          │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Para “Alumno inscrito” se busca por boleta. Para “Alumno reprobado” se admite boleta o nombre y se muestra el periodo actual editable. Solo entran al PDF las materias cuya diferencia esté entre 19 y 28, ambas incluidas; el usuario no puede desmarcarlas.
+Para “Alumno inscrito” se busca por boleta. Para “Alumno reprobado” se admite boleta o nombre y se muestra el periodo actual editable. La fecha de sesión solo puede cambiarse mediante el calendario y se conserva como un objeto `date`. Solo entran al PDF las materias cuya diferencia esté entre 19 y 28, ambas incluidas; el usuario no puede desmarcarlas.
 
 ## 5. Eliminar dictámenes
 

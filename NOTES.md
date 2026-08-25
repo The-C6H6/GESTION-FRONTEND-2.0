@@ -5,3 +5,4 @@
 - Current-period format is five digits ending in `1` or `2`. Eligible failed subjects satisfy `19 <= current - failed < 29` and cannot be deselected.
 - The real HTTP and PDF adapters remain intentionally unimplemented. Use `.env.example` and `referencias/` when adding them later.
 - The interface intentionally uses a light content theme with a dark institutional sidebar. Flet eight-digit hex colors use `#AARRGGBB`; theme regression tests protect semantic text contrast and translucent navigation colors.
+- `PdfRequest.fecha_sesion` is PDF-only `date` data. Future real PDF adapters must call the shared `build_session_paragraph()`/`format_session_date()` functions instead of formatting dates themselves; the demo exposes the resulting paragraph through `GeneratedDocument.preview_text`.

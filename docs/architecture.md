@@ -42,9 +42,9 @@ Las variables requeridas por los futuros adaptadores HTTP están documentadas en
 
 ## Datos de API y datos de PDF
 
-`DictamenCreate` contiene únicamente los campos previstos para la API. El nombre del director y las materias elegibles pertenecen a `PdfRequest`, por lo que no contaminan el payload de creación. Al modificar, la interfaz solo construye `DictamenUpdate(dictaminacion=...)`; clave, boleta y año permanecen de solo lectura.
+`DictamenCreate` contiene únicamente los campos previstos para la API. El nombre del director, la fecha de sesión y las materias elegibles pertenecen a `PdfRequest`, por lo que no contaminan el payload de creación. `fecha_sesion` se conserva como `date` y el adaptador PDF debe usar el formateador compartido para producir textos como `11 DE DICIEMBRE`, sin año. Al modificar, la interfaz solo construye `DictamenUpdate(dictaminacion=...)`; clave, boleta y año permanecen de solo lectura.
 
-El generador demo devuelve un nombre de archivo y `is_simulation=True`, pero ningún contenido binario. Esto evita ofrecer una descarga que aparente ser un PDF válido.
+El generador demo devuelve un nombre de archivo, `is_simulation=True` y una vista previa del párrafo de sesión, pero ningún contenido binario. Esto evita ofrecer una descarga que aparente ser un PDF válido.
 
 ## Regla de periodos
 

@@ -51,6 +51,7 @@ class MateriaElegible:
 class PdfRequest:
     dictamen: Dictamen
     director: str
+    fecha_sesion: date
     materias: tuple[MateriaElegible, ...] = ()
 
 
@@ -59,3 +60,4 @@ class GeneratedDocument:
     filename: str
     content: bytes
     is_simulation: bool
+    preview_text: str = ""

@@ -87,7 +87,11 @@ class DictamenController:
         self, clave: str, dictaminacion: str
     ) -> UpdatedDictamen:
         dictamen = await self.update(clave, dictaminacion)
-        request = PdfRequest(dictamen=dictamen, director="Dirección ESIQIE")
+        request = PdfRequest(
+            dictamen=dictamen,
+            director="Dirección ESIQIE",
+            fecha_sesion=dictamen.fecha,
+        )
         document = await self._pdf_generator.generate(request)
         return UpdatedDictamen(dictamen, document)
 
@@ -98,9 +102,12 @@ class DictamenController:
         director: str,
         materias: Sequence[MateriaElegible],
         reference: date,
+        fecha_sesion: date,
     ) -> CreatedDictamen:
         if not dictaminacion.strip() or not director.strip():
             raise ValidationError("Director y dictaminación son obligatorios.")
+        if not isinstance(fecha_sesion, date):
+            raise ValidationError("Selecciona la fecha de sesión en el calendario.")
         payload = DictamenCreate(
             boleta=alumno.boleta,
             nombre=alumno.nombre,
@@ -112,6 +119,7 @@ class DictamenController:
         pdf_request = PdfRequest(
             dictamen=dictamen,
             director=director.strip(),
+            fecha_sesion=fecha_sesion,
             materias=tuple(materias),
         )
         document = await self._pdf_generator.generate(pdf_request)
