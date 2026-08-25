@@ -1,10 +1,11 @@
 # Project notes
 
+- API integration milestones: Phase 1 login ✅, Phase 2 enrolled students ✅, and Phase 3 failed subjects ✅. Phase 3 was verified on 2026-08-25 with 151 tests, compilation, lock validation, Flet 0.86.5, HTTP 200 startup, code review, and the user-confirmed manual smoke flow.
 - The application now uses a hybrid composition: login, enrolled-student lookup, and failed-subject lookup use HTTP adapters; user registration, rulings, and PDF generation remain on demo adapters.
 - Runtime API settings load `API_BASE_URL` (or legacy `IP_ADDRESS`), `RUTA_LOGIN`, `RUTA_VISUALIZAR_INSCRITOS`, and `RUTA_REPROBADOS` through python-dotenv. Unit tests inject settings and never require `.env` or the backend.
 - Access and refresh tokens live only in `AuthTokenStore`, are omitted from repr/logs, and are cleared before login, on logout, and on API `401`. A `401` also invalidates the Flet session and redirects to `/login`.
 - `ApiInscritoRepository` uses `GET /api/inscritos/{boleta}` and maps the complete API response to `Inscrito`. Both enrolled-student screens show a loading state and reuse the logged-in Bearer token.
-- `ApiReprobadoRepository` uses `GET /api/reprobados?boleta=<boleta>`, validates the complete paginated payload and transport item contract, and maps only the four domain fields. An empty page is a successful result.
+- `ApiReprobadoRepository` uses `GET /api/reprobados?boleta=<boleta>`, validates the complete paginated payload and transport item contract, rejects partial pages and cross-student items, and maps only the four domain fields. An empty page is a successful result.
 - The failed-subject flow first selects an `Inscrito`, reuses that object's boleta without repeating the enrolled-student request, and then applies the existing eligibility rule. Its memoized request gate prevents duplicate concurrent searches.
 - API warning logs intentionally omit request paths and parameters because they can contain the student's boleta. Tokens and response payloads are also excluded.
 - API payload data and PDF-only context are separate. Director and eligible subjects belong to `PdfRequest`, not `DictamenCreate`.
