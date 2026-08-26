@@ -11,6 +11,7 @@ def test_settings_load_api_base_url_and_login_path():
             "RUTA_LOGIN": "/api/auth/login",
             "RUTA_VISUALIZAR_INSCRITOS": "/api/inscritos/{boleta}",
             "RUTA_REPROBADOS": "/api/reprobados",
+            "RUTA_GENERAR_DICTAMEN": "/api/dictaminaciones",
         }
     )
 
@@ -18,6 +19,7 @@ def test_settings_load_api_base_url_and_login_path():
     assert settings.login_path == "/api/auth/login"
     assert settings.inscrito_path == "/api/inscritos/{boleta}"
     assert settings.reprobado_path == "/api/reprobados"
+    assert settings.dictamen_create_path == "/api/dictaminaciones"
     assert settings.timeout_seconds == 10.0
 
 
@@ -29,6 +31,7 @@ def test_settings_prefer_api_base_url_over_legacy_ip_address():
             "RUTA_LOGIN": "/login",
             "RUTA_VISUALIZAR_INSCRITOS": "/inscritos/{boleta}",
             "RUTA_REPROBADOS": "/reprobados",
+            "RUTA_GENERAR_DICTAMEN": "/dictaminaciones",
         }
     )
 
@@ -42,6 +45,7 @@ def test_settings_accept_legacy_ip_address():
             "RUTA_LOGIN": "/login",
             "RUTA_VISUALIZAR_INSCRITOS": "/inscritos/{boleta}",
             "RUTA_REPROBADOS": "/reprobados",
+            "RUTA_GENERAR_DICTAMEN": "/dictaminaciones",
         }
     )
 
@@ -49,7 +53,14 @@ def test_settings_accept_legacy_ip_address():
 
 
 @pytest.mark.parametrize(
-    "missing", ["base_url", "login_path", "inscrito_path", "reprobado_path"]
+    "missing",
+    [
+        "base_url",
+        "login_path",
+        "inscrito_path",
+        "reprobado_path",
+        "dictamen_create_path",
+    ],
 )
 def test_settings_reject_incomplete_configuration(missing):
     keys = {
@@ -57,12 +68,14 @@ def test_settings_reject_incomplete_configuration(missing):
         "login_path": "RUTA_LOGIN",
         "inscrito_path": "RUTA_VISUALIZAR_INSCRITOS",
         "reprobado_path": "RUTA_REPROBADOS",
+        "dictamen_create_path": "RUTA_GENERAR_DICTAMEN",
     }
     values = {
         "API_BASE_URL": "http://api.test",
         "RUTA_LOGIN": "/login",
         "RUTA_VISUALIZAR_INSCRITOS": "/inscritos/{boleta}",
         "RUTA_REPROBADOS": "/reprobados",
+        "RUTA_GENERAR_DICTAMEN": "/dictaminaciones",
     }
     values.pop(keys[missing])
 
@@ -79,6 +92,7 @@ def test_settings_reject_incomplete_configuration(missing):
                 "RUTA_LOGIN": "/login",
                 "RUTA_VISUALIZAR_INSCRITOS": "/inscritos/{boleta}",
                 "RUTA_REPROBADOS": "/reprobados",
+                "RUTA_GENERAR_DICTAMEN": "/dictaminaciones",
             },
             "URL base",
         ),
@@ -88,6 +102,7 @@ def test_settings_reject_incomplete_configuration(missing):
                 "RUTA_LOGIN": "login",
                 "RUTA_VISUALIZAR_INSCRITOS": "/inscritos/{boleta}",
                 "RUTA_REPROBADOS": "/reprobados",
+                "RUTA_GENERAR_DICTAMEN": "/dictaminaciones",
             },
             "ruta de login",
         ),
@@ -97,6 +112,7 @@ def test_settings_reject_incomplete_configuration(missing):
                 "RUTA_LOGIN": "/login",
                 "RUTA_VISUALIZAR_INSCRITOS": "/inscritos",
                 "RUTA_REPROBADOS": "/reprobados",
+                "RUTA_GENERAR_DICTAMEN": "/dictaminaciones",
             },
             "ruta de inscritos",
         ),
@@ -106,6 +122,7 @@ def test_settings_reject_incomplete_configuration(missing):
                 "RUTA_LOGIN": "/login",
                 "RUTA_VISUALIZAR_INSCRITOS": "/inscritos/{boleta}",
                 "RUTA_REPROBADOS": "/reprobados/{boleta}",
+                "RUTA_GENERAR_DICTAMEN": "/dictaminaciones",
             },
             "ruta de reprobados",
         ),
@@ -115,8 +132,19 @@ def test_settings_reject_incomplete_configuration(missing):
                 "RUTA_LOGIN": "/login",
                 "RUTA_VISUALIZAR_INSCRITOS": "/inscritos/{boleta}",
                 "RUTA_REPROBADOS": "/reprobados?boleta=123",
+                "RUTA_GENERAR_DICTAMEN": "/dictaminaciones",
             },
             "ruta de reprobados",
+        ),
+        (
+            {
+                "API_BASE_URL": "http://api.test",
+                "RUTA_LOGIN": "/login",
+                "RUTA_VISUALIZAR_INSCRITOS": "/inscritos/{boleta}",
+                "RUTA_REPROBADOS": "/reprobados",
+                "RUTA_GENERAR_DICTAMEN": "/dictaminaciones?draft=true",
+            },
+            "ruta de creación de dictámenes",
         ),
     ],
 )

@@ -20,6 +20,7 @@ def _repository(handler):
         "/api/auth/login",
         "/api/inscritos/{boleta}",
         "/api/reprobados",
+        "/api/dictaminaciones",
     )
     tokens = AuthTokenStore()
     client = ApiClient(

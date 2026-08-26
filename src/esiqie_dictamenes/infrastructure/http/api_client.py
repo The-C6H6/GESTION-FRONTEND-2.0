@@ -38,6 +38,7 @@ class ApiClient:
         *,
         json: object | None = None,
         params: Mapping[str, str] | None = None,
+        expected_status: int | None = None,
     ) -> object:
         headers = {"Accept": "application/json"}
         if self._tokens.access_token is not None:
@@ -72,6 +73,8 @@ class ApiClient:
             raise ApiConnectionError() from error
 
         self._raise_for_status(response.status_code)
+        if expected_status is not None and response.status_code != expected_status:
+            raise UnexpectedResponseError()
         try:
             return response.json()
         except ValueError as error:
@@ -87,6 +90,8 @@ class ApiClient:
         if status_code == 401:
             self._tokens.clear()
             raise SessionExpiredError()
+        if status_code == 400:
+            raise ValidationError()
         if status_code == 403:
             raise AuthorizationError()
         if status_code == 404:

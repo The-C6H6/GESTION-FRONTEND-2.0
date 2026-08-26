@@ -27,6 +27,7 @@ def _client(handler, tokens=None):
             "/api/auth/login",
             "/api/inscritos/{boleta}",
             "/api/reprobados",
+            "/api/dictaminaciones",
         ),
         tokens or AuthTokenStore(),
         transport=httpx.MockTransport(handler),
@@ -52,6 +53,37 @@ def test_api_client_sends_json_and_bearer_token():
     )
 
     assert result == {"ok": True}
+
+
+def test_api_client_can_require_the_exact_success_status():
+    client = _client(
+        lambda request: httpx.Response(201, json={"Clave": "CSE-0001-26"})
+    )
+
+    result = asyncio.run(
+        client.request_json(
+            "POST",
+            "/api/dictaminaciones",
+            json={"value": 1},
+            expected_status=201,
+        )
+    )
+
+    assert result == {"Clave": "CSE-0001-26"}
+
+
+def test_api_client_rejects_a_different_success_status_when_exact_is_required():
+    client = _client(lambda request: httpx.Response(200, json={"ok": True}))
+
+    with pytest.raises(UnexpectedResponseError):
+        asyncio.run(
+            client.request_json(
+                "POST",
+                "/api/dictaminaciones",
+                json={"value": 1},
+                expected_status=201,
+            )
+        )
 
 
 def test_api_client_omits_authorization_without_a_token():
@@ -85,6 +117,7 @@ def test_api_client_sends_query_parameters_without_changing_the_path():
     ("status_code", "error_type"),
     [
         (401, SessionExpiredError),
+        (400, ValidationError),
         (403, AuthorizationError),
         (404, NotFoundError),
         (422, ValidationError),
