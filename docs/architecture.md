@@ -71,7 +71,7 @@ Una materia reprobada se agrega obligatoriamente al contexto del PDF cuando:
 
 La selección se calcula en el controlador y la vista solo la presenta. Las materias elegibles no tienen un control para desmarcarlas.
 
-En el flujo de alumno reprobado, la vista obtiene primero el `Inscrito` por boleta y conserva ese objeto como fuente de verdad. Después consulta reprobados con `alumno.boleta` y aplica la regla. Una página con `items=[]` es un resultado válido y se diferencia del caso en que existen materias pero ninguna cumple el intervalo. Un guard retenido por el componente impide consultas concurrentes duplicadas y restaura siempre el estado de carga. Al cambiar boleta, origen o periodo se invalida la selección anterior para impedir que un dictamen use datos que ya no corresponden a los criterios visibles.
+El dropdown determina la fuente de forma explícita en `DictamenController`: `Alumno inscrito` consulta únicamente `GET /api/inscritos/{boleta}` y `Alumno reprobado` consulta únicamente `GET /api/reprobados?boleta=<boleta>`. No existe fallback ni comprobación cruzada entre repositorios. Un alumno reprobado se representa como `AlumnoDictaminable` usando los datos comunes de los propios items, sin fabricar un `Inscrito`; una página vacía produce el estado controlado de no encontrado. Después se aplica la regla de periodos a sus materias. Un guard retenido por el componente impide consultas concurrentes duplicadas y restaura siempre el estado de carga. Al cambiar boleta, origen o periodo se invalida la selección anterior para impedir que un dictamen use datos que ya no corresponden a los criterios visibles.
 
 ## Sustitución futura de adaptadores
 

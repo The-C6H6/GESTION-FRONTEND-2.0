@@ -46,6 +46,7 @@ Abre `http://127.0.0.1:8501`. El backend configurado debe estar disponible para 
 ## Alcance actual
 
 - Login, búsqueda de inscritos, consulta paginada de materias reprobadas y creación de dictámenes mediante API, con un mismo token Bearer efímero en memoria.
+- El tipo seleccionado determina la única fuente de búsqueda: `Alumno inscrito` usa `/api/inscritos/{boleta}` y `Alumno reprobado` usa `/api/reprobados?boleta=<boleta>`, sin fallback entre endpoints.
 - Cierre de sesión manual o automático ante una respuesta `401`, navegación privada y página 404.
 - Búsqueda, eliminación y modificación simulada de dictámenes.
 - Preparación separada del contexto PDF, incluido el nombre del director, sin generar todavía un archivo real después de crear el dictamen.
