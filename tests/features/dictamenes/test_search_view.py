@@ -1,4 +1,5 @@
 import asyncio
+from datetime import date
 
 import pytest
 
@@ -8,6 +9,7 @@ from esiqie_dictamenes.core.routes import RoutePath
 from esiqie_dictamenes.core.services import build_demo_services
 from esiqie_dictamenes.features.auth.models import Session
 from esiqie_dictamenes.features.dictamenes.models import (
+    Dictamen,
     DictamenFilter,
     DictamenPage,
 )
@@ -159,3 +161,19 @@ def test_search_controls_are_disabled_during_any_page_request():
     )
 
     assert all(control.disabled for control in controls.controls)
+
+
+def test_existing_result_actions_are_disabled_during_a_page_request():
+    record = Dictamen(
+        clave="CSE-0001-26",
+        boleta="2022630000",
+        alumno="NOMBRE DEL ALUMNO",
+        fecha=date(2026, 8, 26),
+        anio=2026,
+        dictaminacion="DICTAMINACIÃ“N",
+    )
+
+    table = buscar._build_results_table((record,), busy=True)
+    action = table.controls[0].rows[0].cells[-1].content
+
+    assert action.disabled is True

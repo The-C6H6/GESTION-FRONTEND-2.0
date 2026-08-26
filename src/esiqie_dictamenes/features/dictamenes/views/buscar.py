@@ -117,7 +117,7 @@ def _build_search_controls(
     )
 
 
-def _build_results_table(records: tuple) -> ft.Control:
+def _build_results_table(records: tuple, *, busy: bool = False) -> ft.Control:
     if not records:
         return ft.Container()
     return ft.Row(
@@ -145,6 +145,7 @@ def _build_results_table(records: tuple) -> ft.Control:
                                     on_click=lambda _event, key=record.clave: ft.context.page.navigate(
                                         f"/dictamenes/{key}/editar"
                                     ),
+                                    disabled=busy,
                                 )
                             ),
                         ]
@@ -270,7 +271,7 @@ def DictamenSearchView() -> ft.Control:
                 on_search=search,
             ),
             feedback(message, error=has_error),
-            _build_results_table(records),
+            _build_results_table(records, busy=busy),
             pagination,
         ],
         scroll=ft.ScrollMode.AUTO,

@@ -124,16 +124,18 @@ def test_search_sends_exact_filter_and_pagination_parameters(
     assert result.items[0].clave == "CSE-0001-26"
 
 
-def test_search_maps_the_known_empty_400_to_an_empty_page_only():
+@pytest.mark.parametrize(
+    "detail",
+    [
+        "No se encontraron dictaminaciones con los datos proporcionados.",
+        "No se encontraron dictaminaciones.",
+    ],
+)
+def test_search_maps_equivalent_known_empty_400_to_an_empty_page_only(detail):
     repository, _ = _repository(
         lambda request: httpx.Response(
             400,
-            json={
-                "detail": (
-                    "No se encontraron dictaminaciones con los datos "
-                    "proporcionados."
-                )
-            },
+            json={"detail": detail},
         )
     )
 

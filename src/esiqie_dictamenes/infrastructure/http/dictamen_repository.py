@@ -11,9 +11,10 @@ from esiqie_dictamenes.infrastructure.http.api_client import ApiClient
 
 
 class ApiDictamenRepository:
-    _EMPTY_DETAIL = (
-        "no se encontraron dictaminaciones con los datos proporcionados"
-    )
+    _EMPTY_DETAILS = {
+        "no se encontraron dictaminaciones",
+        "no se encontraron dictaminaciones con los datos proporcionados",
+    }
 
     def __init__(
         self,
@@ -70,7 +71,7 @@ class ApiDictamenRepository:
     def _is_empty_result(cls, detail: str | None) -> bool:
         if detail is None:
             return False
-        return detail.strip().rstrip(".").casefold() == cls._EMPTY_DETAIL
+        return detail.strip().rstrip(".").casefold() in cls._EMPTY_DETAILS
 
     @classmethod
     def _parse_page(
