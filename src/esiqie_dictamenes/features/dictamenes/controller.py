@@ -2,7 +2,11 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 
-from esiqie_dictamenes.core.errors import NotFoundError, ValidationError
+from esiqie_dictamenes.core.errors import (
+    NotFoundError,
+    UnexpectedResponseError,
+    ValidationError,
+)
 from esiqie_dictamenes.features.alumnos.models import AlumnoDictaminable, Inscrito
 from esiqie_dictamenes.features.alumnos.repository import (
     InscritoRepository,
@@ -26,6 +30,7 @@ from .repository import (
     DictamenCreateRepository,
     DictamenRepository,
     DictamenSearchRepository,
+    DictamenUpdateRepository,
 )
 
 
@@ -58,12 +63,14 @@ class DictamenController:
         reprobado_repository: ReprobadoRepository | None = None,
         create_repository: DictamenCreateRepository | None = None,
         search_repository: DictamenSearchRepository | None = None,
+        update_repository: DictamenUpdateRepository | None = None,
     ) -> None:
         self._repository = repository
         self._alumno_repository = alumno_repository
         self._reprobado_repository = reprobado_repository or alumno_repository
         self._create_repository = create_repository or repository
         self._search_repository = search_repository or repository
+        self._update_repository = update_repository or repository
         self._pdf_generator = pdf_generator
 
     async def find_student_candidate(
@@ -165,6 +172,39 @@ class DictamenController:
         if not normalized:
             raise ValidationError("Escribe la nueva dictaminación.")
         return await self._repository.update(clave, DictamenUpdate(normalized))
+
+    async def update_dictaminacion(
+        self,
+        current: Dictamen,
+        dictaminacion: object,
+    ) -> Dictamen:
+        if not isinstance(dictaminacion, str) or not dictaminacion.strip():
+            raise ValidationError("La dictaminación no puede estar vacía.")
+        normalized = dictaminacion.strip()
+        if normalized == current.dictaminacion:
+            return current
+
+        updated = await self._update_repository.update(
+            current.clave,
+            DictamenUpdate(normalized),
+        )
+        immutable_current = (
+            current.clave,
+            current.boleta,
+            current.alumno,
+            current.fecha,
+            current.anio,
+        )
+        immutable_updated = (
+            updated.clave,
+            updated.boleta,
+            updated.alumno,
+            updated.fecha,
+            updated.anio,
+        )
+        if immutable_updated != immutable_current:
+            raise UnexpectedResponseError()
+        return updated
 
     async def update_and_generate(
         self, clave: str, dictaminacion: str

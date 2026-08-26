@@ -1,4 +1,5 @@
 from datetime import date
+from urllib.parse import quote
 
 from esiqie_dictamenes.core.errors import BadRequestError, UnexpectedResponseError
 from esiqie_dictamenes.features.dictamenes.models import (
@@ -6,6 +7,7 @@ from esiqie_dictamenes.features.dictamenes.models import (
     DictamenCreate,
     DictamenFilter,
     DictamenPage,
+    DictamenUpdate,
 )
 from esiqie_dictamenes.infrastructure.http.api_client import ApiClient
 
@@ -21,10 +23,12 @@ class ApiDictamenRepository:
         client: ApiClient,
         create_path: str,
         search_path: str | None = None,
+        update_path: str | None = None,
     ) -> None:
         self._client = client
         self._create_path = create_path
         self._search_path = search_path or create_path
+        self._update_path = update_path
 
     async def create(self, payload: DictamenCreate) -> Dictamen:
         response = await self._client.request_json(
@@ -66,6 +70,21 @@ class ApiDictamenRepository:
                 return DictamenPage(total=0, skip=skip, limit=limit, items=())
             raise
         return self._parse_page(response, expected_skip=skip, expected_limit=limit)
+
+    async def update(self, clave: str, payload: DictamenUpdate) -> Dictamen:
+        if self._update_path is None:
+            raise UnexpectedResponseError()
+        path = self._update_path.format(clave=quote(clave, safe=""))
+        response = await self._client.request_json(
+            "PUT",
+            path,
+            json={"Dictaminacion": payload.dictaminacion},
+            expected_status=200,
+        )
+        updated = self._parse_created(response)
+        if updated.clave != clave:
+            raise UnexpectedResponseError()
+        return updated
 
     @classmethod
     def _is_empty_result(cls, detail: str | None) -> bool:

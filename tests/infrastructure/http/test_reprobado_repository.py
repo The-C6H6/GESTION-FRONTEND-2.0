@@ -59,6 +59,7 @@ def _repository(handler, *, with_token=True):
         "/api/reprobados",
         "/api/dictaminaciones",
         "/api/dictaminaciones",
+        "/api/dictaminaciones/{clave}",
     )
     tokens = AuthTokenStore()
     if with_token:

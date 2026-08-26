@@ -16,6 +16,7 @@ class ApiSettings:
     reprobado_path: str
     dictamen_create_path: str
     dictamen_search_path: str
+    dictamen_update_path: str
     timeout_seconds: float = 10.0
 
 
@@ -32,6 +33,9 @@ def load_api_settings(environ: Mapping[str, str] | None = None) -> ApiSettings:
     dictamen_search_path = (
         environ.get("RUTA_LECTURA_DICTAMINACIONES") or ""
     ).strip()
+    dictamen_update_path = (
+        environ.get("RUTA_MODIFICAR_DICTAMEN") or ""
+    ).strip()
     if (
         not base_url
         or not login_path
@@ -39,6 +43,7 @@ def load_api_settings(environ: Mapping[str, str] | None = None) -> ApiSettings:
         or not reprobado_path
         or not dictamen_create_path
         or not dictamen_search_path
+        or not dictamen_update_path
     ):
         raise ConfigurationError(
             "La configuración de conexión con la API está incompleta."
@@ -89,6 +94,19 @@ def load_api_settings(environ: Mapping[str, str] | None = None) -> ApiSettings:
         raise ConfigurationError(
             "La ruta de lectura de dictámenes de la API no es válida."
         )
+    parsed_dictamen_update_path = urlsplit(dictamen_update_path)
+    if (
+        not dictamen_update_path.startswith("/")
+        or parsed_dictamen_update_path.netloc
+        or parsed_dictamen_update_path.query
+        or parsed_dictamen_update_path.fragment
+        or dictamen_update_path.count("{clave}") != 1
+        or dictamen_update_path.count("{") != 1
+        or dictamen_update_path.count("}") != 1
+    ):
+        raise ConfigurationError(
+            "La ruta de modificación de dictámenes de la API no es válida."
+        )
 
     return ApiSettings(
         base_url=base_url.rstrip("/"),
@@ -97,4 +115,5 @@ def load_api_settings(environ: Mapping[str, str] | None = None) -> ApiSettings:
         reprobado_path=reprobado_path,
         dictamen_create_path=dictamen_create_path,
         dictamen_search_path=dictamen_search_path,
+        dictamen_update_path=dictamen_update_path,
     )

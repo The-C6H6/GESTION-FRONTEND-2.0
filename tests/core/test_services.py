@@ -6,7 +6,7 @@ import pytest
 
 from esiqie_dictamenes.core.services import build_demo_services, build_services
 from esiqie_dictamenes.core.settings import ApiSettings
-from esiqie_dictamenes.features.dictamenes.models import DictamenFilter
+from esiqie_dictamenes.features.dictamenes.models import Dictamen, DictamenFilter
 from tests.infrastructure.http.test_inscrito_repository import INSCRITO_RESPONSE
 from tests.infrastructure.http.test_reprobado_repository import (
     REPROBADO_ITEM,
@@ -43,6 +43,7 @@ def test_production_services_use_api_login_and_store_tokens():
             "/api/reprobados",
             "/api/dictaminaciones",
             "/api/dictaminaciones",
+            "/api/dictaminaciones/{clave}",
         ),
         transport=httpx.MockTransport(handler),
     )
@@ -67,6 +68,7 @@ def test_production_services_keep_user_registration_in_demo_mode():
             "/api/reprobados",
             "/api/dictaminaciones",
             "/api/dictaminaciones",
+            "/api/dictaminaciones/{clave}",
         ),
         transport=httpx.MockTransport(reject_network),
     )
@@ -119,6 +121,7 @@ def test_production_services_share_login_token_with_inscritos():
             "/api/reprobados",
             "/api/dictaminaciones",
             "/api/dictaminaciones",
+            "/api/dictaminaciones/{clave}",
         ),
         transport=httpx.MockTransport(handler),
     )
@@ -163,6 +166,7 @@ def test_production_services_share_login_token_with_reprobados():
             "/api/reprobados",
             "/api/dictaminaciones",
             "/api/dictaminaciones",
+            "/api/dictaminaciones/{clave}",
         ),
         transport=httpx.MockTransport(handler),
     )
@@ -210,6 +214,7 @@ def test_production_services_create_rulings_through_the_api_only():
             "/api/reprobados",
             "/api/dictaminaciones",
             "/api/dictaminaciones",
+            "/api/dictaminaciones/{clave}",
         ),
         transport=httpx.MockTransport(handler),
     )
@@ -268,6 +273,7 @@ def test_production_services_search_rulings_through_the_shared_api_client():
             "/api/reprobados",
             "/api/dictaminaciones",
             "/api/dictaminaciones",
+            "/api/dictaminaciones/{clave}",
         ),
         transport=httpx.MockTransport(handler),
     )
@@ -283,3 +289,57 @@ def test_production_services_search_rulings_through_the_shared_api_client():
     assert result.total == 1
     assert result.items[0].clave == "CSE-0001-26"
     assert paths == ["/api/auth/login", "/api/dictaminaciones"]
+
+
+def test_production_services_update_rulings_through_the_shared_api_client():
+    requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path == "/api/auth/login":
+            return httpx.Response(
+                200,
+                json={
+                    "access_token": "shared-access",
+                    "refresh_token": "shared-refresh",
+                    "token_type": "bearer",
+                },
+            )
+        assert request.method == "PUT"
+        assert request.url.path == "/custom/dictaminaciones/CSE-0001-26"
+        assert request.headers["Authorization"] == "Bearer shared-access"
+        assert request.content == b'{"Dictaminacion":"DICTAMEN ACTUALIZADO"}'
+        updated = {**CREATED_RESPONSE, "Dictaminacion": "DICTAMEN ACTUALIZADO"}
+        return httpx.Response(200, json=updated)
+
+    services = build_services(
+        settings=ApiSettings(
+            "http://api.test",
+            "/api/auth/login",
+            "/api/inscritos/{boleta}",
+            "/api/reprobados",
+            "/api/dictaminaciones",
+            "/api/dictaminaciones",
+            "/custom/dictaminaciones/{clave}",
+        ),
+        transport=httpx.MockTransport(handler),
+    )
+    asyncio.run(services.auth_controller.login("directivo", "secreto"))
+    current = Dictamen(
+        clave="CSE-0001-26",
+        boleta=CREATED_RESPONSE["Boleta"],
+        alumno=CREATED_RESPONSE["Nombre"],
+        fecha=date.fromisoformat(CREATED_RESPONSE["Fecha"]),
+        anio=2026,
+        dictaminacion=CREATED_RESPONSE["Dictaminacion"],
+    )
+
+    updated = asyncio.run(
+        services.dictamen_controller.update_dictaminacion(
+            current,
+            "DICTAMEN ACTUALIZADO",
+        )
+    )
+
+    assert updated.dictaminacion == "DICTAMEN ACTUALIZADO"
+    assert [request.method for request in requests] == ["POST", "PUT"]

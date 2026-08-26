@@ -10,13 +10,18 @@ from esiqie_dictamenes.core.errors import (
     ApiConnectionError,
     ApiTimeoutError,
     AuthorizationError,
+    NotFoundError,
     ServiceUnavailableError,
     SessionExpiredError,
     UnexpectedResponseError,
     ValidationError,
 )
 from esiqie_dictamenes.core.settings import ApiSettings
-from esiqie_dictamenes.features.dictamenes.models import DictamenCreate, DictamenFilter
+from esiqie_dictamenes.features.dictamenes.models import (
+    DictamenCreate,
+    DictamenFilter,
+    DictamenUpdate,
+)
 from esiqie_dictamenes.infrastructure.http.api_client import ApiClient
 from esiqie_dictamenes.infrastructure.http.dictamen_repository import (
     ApiDictamenRepository,
@@ -50,6 +55,11 @@ SEARCH_ITEM = {
     "Clave": "CSE-0001-26",
 }
 
+UPDATED_RESPONSE = {
+    **CREATED_RESPONSE,
+    "Dictaminacion": "NUEVO VALOR DE DICTAMINACION",
+}
+
 
 def search_page(*items, total=None, skip=0, limit=100):
     return {
@@ -60,7 +70,11 @@ def search_page(*items, total=None, skip=0, limit=100):
     }
 
 
-def _repository(handler):
+def _repository(
+    handler,
+    *,
+    update_path="/custom/dictaminaciones/{clave}",
+):
     settings = ApiSettings(
         "http://api.test",
         "/api/auth/login",
@@ -68,6 +82,7 @@ def _repository(handler):
         "/api/reprobados",
         "/api/dictaminaciones",
         "/api/dictaminaciones",
+        update_path,
     )
     tokens = AuthTokenStore()
     tokens.replace("access-secret", "refresh-secret")
@@ -81,9 +96,164 @@ def _repository(handler):
             client,
             settings.dictamen_create_path,
             settings.dictamen_search_path,
+            settings.dictamen_update_path,
         ),
         tokens,
     )
+
+
+def test_update_uses_configured_path_and_sends_only_dictaminacion():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "PUT"
+        assert request.url.path == "/custom/dictaminaciones/CSE-0123-26"
+        assert request.headers["Authorization"] == "Bearer access-secret"
+        assert json.loads(request.content) == {
+            "Dictaminacion": "NUEVO VALOR DE DICTAMINACION"
+        }
+        return httpx.Response(
+            200,
+            json={**UPDATED_RESPONSE, "Clave": "CSE-0123-26"},
+        )
+
+    repository, _ = _repository(handler)
+
+    result = asyncio.run(
+        repository.update(
+            "CSE-0123-26",
+            DictamenUpdate("NUEVO VALOR DE DICTAMINACION"),
+        )
+    )
+
+    assert result.clave == "CSE-0123-26"
+    assert result.boleta == "2022630000"
+    assert result.alumno == "NOMBRE DEL ALUMNO"
+    assert result.fecha == date(2026, 8, 26)
+    assert result.anio == 2026
+    assert result.dictaminacion == "NUEVO VALOR DE DICTAMINACION"
+
+
+@pytest.mark.parametrize(
+    "response_json",
+    [
+        [UPDATED_RESPONSE],
+        {key: value for key, value in UPDATED_RESPONSE.items() if key != "Clave"},
+        {**UPDATED_RESPONSE, "Clave": 123},
+        {**UPDATED_RESPONSE, "Anio": "2026"},
+        {**UPDATED_RESPONSE, "Fecha": "26 DE AGOSTO"},
+        {**UPDATED_RESPONSE, "Nombre": None},
+        {**UPDATED_RESPONSE, "Dictaminacion": None},
+    ],
+)
+def test_update_rejects_an_invalid_response_contract(response_json):
+    repository, _ = _repository(
+        lambda request: httpx.Response(200, json=response_json)
+    )
+
+    with pytest.raises(UnexpectedResponseError):
+        asyncio.run(
+            repository.update(
+                "CSE-0001-26",
+                DictamenUpdate("NUEVO VALOR DE DICTAMINACION"),
+            )
+        )
+
+
+def test_update_rejects_invalid_json():
+    repository, _ = _repository(
+        lambda request: httpx.Response(200, text="not-json")
+    )
+
+    with pytest.raises(UnexpectedResponseError):
+        asyncio.run(
+            repository.update(
+                "CSE-0001-26",
+                DictamenUpdate("NUEVO VALOR DE DICTAMINACION"),
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    ("status_code", "expected_error"),
+    [
+        (400, ValidationError),
+        (401, SessionExpiredError),
+        (403, AuthorizationError),
+        (404, NotFoundError),
+        (422, ValidationError),
+        (500, ServiceUnavailableError),
+    ],
+)
+def test_update_propagates_controlled_http_errors(status_code, expected_error):
+    repository, _ = _repository(
+        lambda request: httpx.Response(status_code, json={"detail": "error"})
+    )
+
+    with pytest.raises(expected_error):
+        asyncio.run(
+            repository.update(
+                "CSE-0001-26",
+                DictamenUpdate("NUEVO VALOR DE DICTAMINACION"),
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    ("transport_error", "expected_error"),
+    [
+        (httpx.ReadTimeout("slow"), ApiTimeoutError),
+        (httpx.ConnectError("offline"), ApiConnectionError),
+    ],
+)
+def test_update_does_not_retry_ambiguous_transport_failures(
+    transport_error,
+    expected_error,
+):
+    attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        transport_error.request = request
+        raise transport_error
+
+    repository, _ = _repository(handler)
+
+    with pytest.raises(expected_error):
+        asyncio.run(
+            repository.update(
+                "CSE-0001-26",
+                DictamenUpdate("NUEVO VALOR DE DICTAMINACION"),
+            )
+        )
+
+    assert attempts == 1
+
+
+@pytest.mark.parametrize("failure", ["timeout", "invalid_json"])
+def test_update_never_logs_identifiers_payload_or_credentials(failure, caplog):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if failure == "timeout":
+            raise httpx.ReadTimeout("slow", request=request)
+        return httpx.Response(200, text="not-json")
+
+    repository, _ = _repository(handler)
+
+    with caplog.at_level(logging.WARNING), pytest.raises(
+        (ApiTimeoutError, UnexpectedResponseError)
+    ):
+        asyncio.run(
+            repository.update(
+                "CSE-PRIVATE-26",
+                DictamenUpdate("CONTENIDO PRIVADO DEL DICTAMEN"),
+            )
+        )
+
+    assert "CSE-PRIVATE-26" not in caplog.text
+    assert "2022630000" not in caplog.text
+    assert "NOMBRE DEL ALUMNO" not in caplog.text
+    assert "CONTENIDO PRIVADO DEL DICTAMEN" not in caplog.text
+    assert "access-secret" not in caplog.text
+    assert "refresh-secret" not in caplog.text
 
 
 @pytest.mark.parametrize(

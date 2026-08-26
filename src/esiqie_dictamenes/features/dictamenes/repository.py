@@ -24,6 +24,10 @@ class DictamenSearchRepository(Protocol):
     ) -> DictamenPage: ...
 
 
+class DictamenUpdateRepository(Protocol):
+    async def update(self, clave: str, payload: DictamenUpdate) -> Dictamen: ...
+
+
 class DictamenRepository(DictamenCreateRepository, Protocol):
     async def search(self, filters: DictamenFilter) -> Sequence[Dictamen]: ...
 

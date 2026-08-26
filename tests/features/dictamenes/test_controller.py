@@ -4,7 +4,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from esiqie_dictamenes.core.errors import NotFoundError, ValidationError
+from esiqie_dictamenes.core.errors import (
+    NotFoundError,
+    UnexpectedResponseError,
+    ValidationError,
+)
 from esiqie_dictamenes.features.dictamenes.controller import DictamenController
 from esiqie_dictamenes.features.dictamenes.models import (
     Dictamen,
@@ -299,6 +303,135 @@ def test_update_preserves_read_only_ruling_metadata():
     assert result.boleta == "2024320678"
     assert result.anio == 2025
     assert result.dictaminacion == "Causa actualizada"
+
+
+def test_real_update_changes_only_dictaminacion_after_repository_success():
+    current = asyncio.run(DemoDictamenRepository().get("D-00132"))
+
+    class UpdateRepository:
+        def __init__(self):
+            self.calls = []
+
+        async def update(self, clave, payload):
+            self.calls.append((clave, payload))
+            return Dictamen(
+                current.clave,
+                current.boleta,
+                current.alumno,
+                current.fecha,
+                current.anio,
+                payload.dictaminacion,
+            )
+
+    update_repository = UpdateRepository()
+    controller = DictamenController(
+        DemoDictamenRepository(),
+        DemoAlumnoRepository(),
+        DemoPdfGenerator(),
+        update_repository=update_repository,
+    )
+
+    result = asyncio.run(
+        controller.update_dictaminacion(current, "  Nueva dictaminaciÃ³n  ")
+    )
+
+    assert len(update_repository.calls) == 1
+    clave, payload = update_repository.calls[0]
+    assert clave == current.clave
+    assert payload.dictaminacion == "Nueva dictaminaciÃ³n"
+    assert result.dictaminacion == "Nueva dictaminaciÃ³n"
+    assert (
+        result.clave,
+        result.boleta,
+        result.alumno,
+        result.fecha,
+        result.anio,
+    ) == (
+        current.clave,
+        current.boleta,
+        current.alumno,
+        current.fecha,
+        current.anio,
+    )
+
+
+@pytest.mark.parametrize("value", ["", "   ", None, 2026])
+def test_real_update_rejects_empty_or_non_string_values_without_a_put(value):
+    class RejectingUpdateRepository:
+        async def update(self, clave, payload):
+            raise AssertionError("Invalid input must not reach the repository.")
+
+    controller = DictamenController(
+        DemoDictamenRepository(),
+        DemoAlumnoRepository(),
+        DemoPdfGenerator(),
+        update_repository=RejectingUpdateRepository(),
+    )
+    current = asyncio.run(DemoDictamenRepository().get("D-00132"))
+
+    with pytest.raises(ValidationError, match="no puede estar"):
+        asyncio.run(controller.update_dictaminacion(current, value))
+
+
+def test_real_update_skips_put_when_dictaminacion_is_unchanged():
+    class RejectingUpdateRepository:
+        async def update(self, clave, payload):
+            raise AssertionError("An unchanged value must not trigger a PUT.")
+
+    controller = DictamenController(
+        DemoDictamenRepository(),
+        DemoAlumnoRepository(),
+        DemoPdfGenerator(),
+        update_repository=RejectingUpdateRepository(),
+    )
+    current = asyncio.run(DemoDictamenRepository().get("D-00132"))
+
+    result = asyncio.run(
+        controller.update_dictaminacion(
+            current,
+            f"  {current.dictaminacion}  ",
+        )
+    )
+
+    assert result is current
+
+
+@pytest.mark.parametrize(
+    "changed_field",
+    ["clave", "boleta", "alumno", "fecha", "anio"],
+)
+def test_real_update_rejects_backend_changes_to_immutable_metadata(changed_field):
+    current = asyncio.run(DemoDictamenRepository().get("D-00132"))
+    values = {
+        "clave": "CSE-OTHER-26",
+        "boleta": "2026999999",
+        "alumno": "OTRO ALUMNO",
+        "fecha": date(2026, 1, 1),
+        "anio": 2026,
+    }
+
+    class InvalidUpdateRepository:
+        async def update(self, clave, payload):
+            data = {
+                "clave": current.clave,
+                "boleta": current.boleta,
+                "alumno": current.alumno,
+                "fecha": current.fecha,
+                "anio": current.anio,
+                "dictaminacion": payload.dictaminacion,
+            }
+            data[changed_field] = values[changed_field]
+            return Dictamen(**data)
+
+    controller = DictamenController(
+        DemoDictamenRepository(),
+        DemoAlumnoRepository(),
+        DemoPdfGenerator(),
+        update_repository=InvalidUpdateRepository(),
+    )
+
+    with pytest.raises(UnexpectedResponseError):
+        asyncio.run(controller.update_dictaminacion(current, "Nuevo valor"))
 
 
 def test_update_generates_a_new_pdf_simulation_automatically():

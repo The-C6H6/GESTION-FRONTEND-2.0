@@ -86,6 +86,7 @@ def build_services(
         api_client,
         settings.dictamen_create_path,
         settings.dictamen_search_path,
+        settings.dictamen_update_path,
     )
     return AppServices(
         auth_controller=AuthController(auth_repository),
@@ -97,6 +98,7 @@ def build_services(
             reprobado_repository=reprobado_repository,
             create_repository=api_dictamen_repository,
             search_repository=api_dictamen_repository,
+            update_repository=api_dictamen_repository,
         ),
         alumno_controller=AlumnoController(inscrito_repository),
         auth_repository=auth_repository,
