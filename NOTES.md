@@ -1,6 +1,6 @@
 # Project notes
 
-- API integration milestones: Phase 1 login ✅, Phase 2 enrolled students ✅, Phase 3 failed subjects ✅, and Phase 4 ruling creation ✅. Phase 4 was verified on 2026-08-26 with 188 tests, compilation, lock validation, Flet 0.86.5, HTTP 200 startup, code review, and the user-confirmed real creation/Clave smoke flow.
+- API integration milestones: Phase 1 login ✅, Phase 2 enrolled students ✅, Phase 3 failed subjects ✅, and Phase 4 ruling creation ✅. Phase 4 was verified on 2026-08-26 with 187 tests, compilation, lock validation, Flet 0.86.5, HTTP 200 startup, code review, and the user-confirmed real creation/Clave smoke flow.
 - The application uses a hybrid composition: login, enrolled-student lookup, failed-subject lookup, and ruling creation use HTTP adapters; user registration, ruling reads/updates/deletes, and PDF generation remain on demo adapters.
 - Runtime API settings load `API_BASE_URL` (or legacy `IP_ADDRESS`), `RUTA_LOGIN`, `RUTA_VISUALIZAR_INSCRITOS`, `RUTA_REPROBADOS`, and `RUTA_GENERAR_DICTAMEN` through python-dotenv. Unit tests inject settings and never require `.env` or the backend.
 - Access and refresh tokens live only in `AuthTokenStore`, are omitted from repr/logs, and are cleared before login, on logout, and on API `401`. A `401` also invalidates the Flet session and redirects to `/login`.
@@ -11,6 +11,7 @@
 - API warning logs intentionally omit request paths and parameters because they can contain the student's boleta. Tokens and response payloads are also excluded.
 - API payload data and PDF-only context are separate. Director and eligible subjects belong to `PdfRequest`, not `DictamenCreate`.
 - Current-period format is five digits ending in `1` or `2`. Eligible failed subjects satisfy `19 <= current - failed < 29` and cannot be deselected.
+- When a failed student has no eligible subjects, the ruling form leaves the subject section empty instead of exposing the internal period-rule message.
 - HTTP adapters for registration, ruling reads/updates/deletes, and the real PDF remain intentionally unimplemented. `/api/auth/me` and `/api/auth/refresh` are also deferred. Ruling creation uses a single non-retried `POST /api/dictaminaciones`; the backend remains the exclusive source of `Clave`.
 - The interface intentionally uses a light content theme with a dark institutional sidebar. Flet eight-digit hex colors use `#AARRGGBB`; theme regression tests protect semantic text contrast and translucent navigation colors.
 - `PdfRequest.fecha_sesion` is PDF-only `date` data. Future real PDF adapters must call the shared `build_session_paragraph()`/`format_session_date()` functions instead of formatting dates themselves; the demo exposes the resulting paragraph through `GeneratedDocument.preview_text`.
