@@ -221,6 +221,31 @@ def test_search_propagates_controlled_http_errors(status_code, expected_error):
         )
 
 
+@pytest.mark.parametrize("failure", ["timeout", "invalid_json"])
+def test_search_never_logs_filters_or_credentials(failure, caplog):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if failure == "timeout":
+            raise httpx.ReadTimeout("slow", request=request)
+        return httpx.Response(200, text="not-json")
+
+    repository, _ = _repository(handler)
+
+    with caplog.at_level(logging.WARNING), pytest.raises(
+        (ApiTimeoutError, UnexpectedResponseError)
+    ):
+        asyncio.run(
+            repository.search_page(
+                DictamenFilter(boleta="2022630000"),
+                skip=0,
+                limit=100,
+            )
+        )
+
+    assert "2022630000" not in caplog.text
+    assert "access-secret" not in caplog.text
+    assert "refresh-secret" not in caplog.text
+
+
 def test_create_sends_the_exact_api_payload_and_maps_the_created_ruling():
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "POST"
