@@ -91,6 +91,19 @@ def _creation_success_message(clave: str) -> str:
     return f"Dictamen creado correctamente. Clave: {clave}"
 
 
+def _change_search_criterion(
+    value: str,
+    set_criterion: Callable[[str], None],
+    set_alumno: Callable[[object | None], None],
+    set_materias: Callable[[tuple], None],
+    set_total_reprobadas: Callable[[int], None],
+) -> None:
+    set_criterion(value)
+    set_alumno(None)
+    set_materias(())
+    set_total_reprobadas(0)
+
+
 def _build_create_button(
     search_busy: bool,
     create_busy: bool,
@@ -255,7 +268,13 @@ def DictamenCreateView() -> ft.Control:
                     ft.DropdownOption(key="inscrito", text="Alumno inscrito"),
                     ft.DropdownOption(key="reprobado", text="Alumno reprobado"),
                 ],
-                on_select=lambda e: set_source(e.control.value),
+                on_select=lambda e: _change_search_criterion(
+                    e.control.value,
+                    set_source,
+                    set_alumno,
+                    set_materias,
+                    set_total_reprobadas,
+                ),
                 disabled=interaction_busy,
                 key="dictamen-source",
             ),
@@ -264,7 +283,13 @@ def DictamenCreateView() -> ft.Control:
                     ft.TextField(
                         label="Número de boleta",
                         value=query,
-                        on_change=lambda e: set_query(e.control.value),
+                        on_change=lambda e: _change_search_criterion(
+                            e.control.value,
+                            set_query,
+                            set_alumno,
+                            set_materias,
+                            set_total_reprobadas,
+                        ),
                         disabled=interaction_busy,
                         expand=True,
                         key="dictamen-student-query",
@@ -272,7 +297,13 @@ def DictamenCreateView() -> ft.Control:
                     ft.TextField(
                         label="Periodo actual",
                         value=period,
-                        on_change=lambda e: set_period(e.control.value),
+                        on_change=lambda e: _change_search_criterion(
+                            e.control.value,
+                            set_period,
+                            set_alumno,
+                            set_materias,
+                            set_total_reprobadas,
+                        ),
                         width=170,
                         visible=source == "reprobado",
                         disabled=interaction_busy,

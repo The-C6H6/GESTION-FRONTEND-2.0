@@ -259,3 +259,23 @@ def test_creation_success_message_exposes_the_backend_key():
     message = crear._creation_success_message("CSE-0001-26")
 
     assert message == "Dictamen creado correctamente. Clave: CSE-0001-26"
+
+
+def test_changing_a_search_criterion_invalidates_the_selected_student():
+    criterion_updates = []
+    student_updates = []
+    subject_updates = []
+    total_updates = []
+
+    crear._change_search_criterion(
+        "2025320001",
+        criterion_updates.append,
+        student_updates.append,
+        subject_updates.append,
+        total_updates.append,
+    )
+
+    assert criterion_updates == ["2025320001"]
+    assert student_updates == [None]
+    assert subject_updates == [()]
+    assert total_updates == [0]
