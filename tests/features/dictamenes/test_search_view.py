@@ -163,7 +163,7 @@ def test_search_controls_are_disabled_during_any_page_request():
     assert all(control.disabled for control in controls.controls)
 
 
-def test_existing_result_actions_are_disabled_during_a_page_request():
+def test_modify_selection_action_is_disabled_during_a_page_request():
     record = Dictamen(
         clave="CSE-0001-26",
         boleta="2022630000",
@@ -173,7 +173,12 @@ def test_existing_result_actions_are_disabled_during_a_page_request():
         dictaminacion="DICTAMINACIÃ“N",
     )
 
-    table = buscar._build_results_table((record,), busy=True)
-    action = table.controls[0].rows[0].cells[-1].content
+    actions = buscar._build_selection_actions(
+        busy=True,
+        has_results=True,
+        editing=False,
+        on_edit=lambda: None,
+    )
+    action = actions.controls[0]
 
     assert action.disabled is True

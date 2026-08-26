@@ -7,7 +7,6 @@ class RoutePath(StrEnum):
     DICTAMENES = "/dictamenes"
     NUEVO_DICTAMEN = "/dictamenes/nuevo"
     ELIMINAR_DICTAMENES = "/dictamenes/eliminar"
-    EDITAR_DICTAMEN = "/dictamenes/:clave/editar"
     INSCRITOS = "/inscritos"
     NUEVO_USUARIO = "/usuarios/nuevo"
 

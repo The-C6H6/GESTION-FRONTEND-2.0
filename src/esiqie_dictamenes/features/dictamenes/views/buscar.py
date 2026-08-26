@@ -3,9 +3,16 @@ from collections.abc import Callable
 import flet as ft
 
 from esiqie_dictamenes.core.context import use_app_context
-from esiqie_dictamenes.core.errors import ValidationError, to_user_message
+from esiqie_dictamenes.core.errors import (
+    ApiConnectionError,
+    ApiTimeoutError,
+    NotFoundError,
+    ValidationError,
+    to_user_message,
+)
 from esiqie_dictamenes.core.routes import RoutePath
 from esiqie_dictamenes.features.dictamenes.models import (
+    Dictamen,
     DictamenFilter,
     DictamenPage,
 )
@@ -13,6 +20,7 @@ from esiqie_dictamenes.features.dictamenes.views.crear import (
     _RequestGate,
     _run_guarded_request,
 )
+from esiqie_dictamenes.features.dictamenes.views.modificar import _build_edit_form
 from esiqie_dictamenes.shared.components.feedback import feedback
 from esiqie_dictamenes.shared.components.page_header import page_header
 
@@ -72,6 +80,80 @@ def _search_error_message(context, error: Exception, navigate: Callable) -> str:
     return to_user_message(error)
 
 
+def _toggle_selected_key(
+    selected_keys: frozenset[str],
+    clave: str,
+    selected: bool,
+) -> frozenset[str]:
+    if selected:
+        return selected_keys | {clave}
+    return selected_keys - {clave}
+
+
+def _selected_record(
+    records: tuple[Dictamen, ...],
+    selected_keys: frozenset[str],
+) -> Dictamen:
+    if not selected_keys:
+        raise ValidationError("Selecciona un dictamen para modificar.")
+    if len(selected_keys) > 1:
+        raise ValidationError(
+            "Selecciona únicamente un dictamen para modificar."
+        )
+    selected_key = next(iter(selected_keys))
+    for record in records:
+        if record.clave == selected_key:
+            return record
+    raise NotFoundError()
+
+
+def _replace_updated_record(
+    page: DictamenPage,
+    updated: Dictamen,
+) -> DictamenPage:
+    if all(record.clave != updated.clave for record in page.items):
+        raise NotFoundError()
+    return DictamenPage(
+        total=page.total,
+        skip=page.skip,
+        limit=page.limit,
+        items=tuple(
+            updated if record.clave == updated.clave else record
+            for record in page.items
+        ),
+    )
+
+
+async def _load_update(
+    controller,
+    current: Dictamen,
+    value: str,
+    commit: Callable[[Dictamen], None],
+) -> None:
+    updated = await controller.update_dictaminacion(current, value)
+    commit(updated)
+
+
+def _update_error_message(
+    context,
+    error: Exception,
+    navigate: Callable,
+    clear_selection: Callable[[], None],
+) -> str:
+    if context.handle_session_error(error):
+        navigate(RoutePath.LOGIN)
+        return ""
+    if isinstance(error, NotFoundError):
+        clear_selection()
+        return "El dictamen ya no está disponible. Actualiza la búsqueda."
+    if isinstance(error, (ApiTimeoutError, ApiConnectionError)):
+        return (
+            "No se pudo confirmar si el dictamen fue actualizado. "
+            "Actualiza la búsqueda antes de intentarlo nuevamente."
+        )
+    return to_user_message(error)
+
+
 def _build_search_controls(
     *,
     criterion: str,
@@ -117,37 +199,44 @@ def _build_search_controls(
     )
 
 
-def _build_results_table(records: tuple, *, busy: bool = False) -> ft.Control:
+def _build_results_table(
+    records: tuple[Dictamen, ...],
+    *,
+    selected_keys: frozenset[str],
+    busy: bool,
+    on_selection: Callable[[str, bool], None],
+) -> ft.Control:
     if not records:
         return ft.Container()
     return ft.Row(
         [
             ft.DataTable(
+                show_checkbox_column=True,
                 columns=[
                     ft.DataColumn(ft.Text("Clave")),
                     ft.DataColumn(ft.Text("Boleta")),
                     ft.DataColumn(ft.Text("Alumno")),
                     ft.DataColumn(ft.Text("A\u00f1o")),
                     ft.DataColumn(ft.Text("Dictaminaci\u00f3n")),
-                    ft.DataColumn(ft.Text("Acci\u00f3n")),
                 ],
                 rows=[
                     ft.DataRow(
+                        data=record,
+                        selected=record.clave in selected_keys,
+                        disabled=busy,
+                        on_select_change=(
+                            None
+                            if busy
+                            else lambda _event, key=record.clave, selected=(
+                                record.clave in selected_keys
+                            ): on_selection(key, not selected)
+                        ),
                         cells=[
                             ft.DataCell(ft.Text(record.clave)),
                             ft.DataCell(ft.Text(record.boleta)),
                             ft.DataCell(ft.Text(record.alumno)),
                             ft.DataCell(ft.Text(str(record.anio))),
                             ft.DataCell(ft.Text(record.dictaminacion)),
-                            ft.DataCell(
-                                ft.Button(
-                                    "Modificar",
-                                    on_click=lambda _event, key=record.clave: ft.context.page.navigate(
-                                        f"/dictamenes/{key}/editar"
-                                    ),
-                                    disabled=busy,
-                                )
-                            ),
                         ]
                     )
                     for record in records
@@ -155,6 +244,26 @@ def _build_results_table(records: tuple, *, busy: bool = False) -> ft.Control:
             )
         ],
         scroll=ft.ScrollMode.AUTO,
+    )
+
+
+def _build_selection_actions(
+    *,
+    busy: bool,
+    has_results: bool,
+    editing: bool,
+    on_edit: Callable,
+) -> ft.Row:
+    return ft.Row(
+        [
+            ft.Button(
+                "Modificar seleccionado",
+                on_click=on_edit,
+                disabled=busy or not has_results or editing,
+                key="dictamen-edit-selected",
+            )
+        ],
+        alignment=ft.MainAxisAlignment.END,
     )
 
 
@@ -167,9 +276,17 @@ def DictamenSearchView() -> ft.Control:
     committed_filter, set_committed_filter = ft.use_state(None)
     current_page, set_current_page = ft.use_state(1)
     result, set_result = ft.use_state(None)
+    selected_keys, set_selected_keys = ft.use_state(frozenset())
+    editing_record, set_editing_record = ft.use_state(None)
+    edit_value, set_edit_value = ft.use_state("")
     busy, set_busy = ft.use_state(False)
     message, set_message = ft.use_state("")
     has_error, set_has_error = ft.use_state(False)
+
+    def clear_selection() -> None:
+        set_selected_keys(frozenset())
+        set_editing_record(None)
+        set_edit_value("")
 
     def commit_page(
         filters: DictamenFilter,
@@ -179,11 +296,23 @@ def DictamenSearchView() -> ft.Control:
         set_committed_filter(filters)
         set_current_page(page)
         set_result(loaded)
+        clear_selection()
         set_message(_search_success_message(loaded))
         set_has_error(False)
 
-    async def request_page(filters: DictamenFilter, page: int) -> None:
+    async def request_page(
+        filters: DictamenFilter,
+        page: int,
+        *,
+        reset_results: bool = False,
+    ) -> None:
         async def operation() -> None:
+            if reset_results:
+                set_result(None)
+                set_committed_filter(None)
+                set_current_page(1)
+                clear_selection()
+                set_message("")
             try:
                 await _load_page(
                     context.services.dictamen_controller,
@@ -210,7 +339,7 @@ def DictamenSearchView() -> ft.Control:
             set_message(to_user_message(error))
             set_has_error(True)
             return
-        await request_page(filters, 1)
+        await request_page(filters, 1, reset_results=True)
 
     async def previous_page() -> None:
         if committed_filter is not None and current_page > 1:
@@ -222,6 +351,54 @@ def DictamenSearchView() -> ft.Control:
         total_pages = (result.total + result.limit - 1) // result.limit
         if current_page < total_pages:
             await request_page(committed_filter, current_page + 1)
+
+    def change_selection(clave: str, selected: bool) -> None:
+        set_selected_keys(_toggle_selected_key(selected_keys, clave, selected))
+
+    def open_editor() -> None:
+        try:
+            selected = _selected_record(records, selected_keys)
+        except (ValidationError, NotFoundError) as error:
+            set_message(to_user_message(error))
+            set_has_error(True)
+            return
+        set_editing_record(selected)
+        set_edit_value(selected.dictaminacion)
+        set_message("")
+        set_has_error(False)
+
+    def commit_update(updated: Dictamen) -> None:
+        if result is None:
+            raise NotFoundError()
+        set_result(_replace_updated_record(result, updated))
+        clear_selection()
+        set_message("Dictamen actualizado correctamente.")
+        set_has_error(False)
+
+    async def save_update() -> None:
+        if editing_record is None:
+            return
+
+        async def operation() -> None:
+            try:
+                await _load_update(
+                    context.services.dictamen_controller,
+                    editing_record,
+                    edit_value,
+                    commit_update,
+                )
+            except Exception as error:
+                set_message(
+                    _update_error_message(
+                        context,
+                        error,
+                        ft.context.page.navigate,
+                        clear_selection,
+                    )
+                )
+                set_has_error(True)
+
+        await _run_guarded_request(gate, set_busy, operation)
 
     pagination = ft.Container()
     records = ()
@@ -256,6 +433,22 @@ def DictamenSearchView() -> ft.Control:
                 ]
             )
 
+    edit_form = ft.Container()
+    if editing_record is not None:
+        edit_form = ft.Container(
+            content=_build_edit_form(
+                record=editing_record,
+                value=edit_value,
+                busy=busy,
+                on_value=lambda event: set_edit_value(event.control.value),
+                on_save=save_update,
+                on_cancel=clear_selection,
+            ),
+            padding=20,
+            border=ft.Border.all(1, ft.Colors.OUTLINE_VARIANT),
+            border_radius=12,
+        )
+
     return ft.Column(
         [
             page_header(
@@ -270,8 +463,21 @@ def DictamenSearchView() -> ft.Control:
                 on_query=lambda event: set_query(event.control.value),
                 on_search=search,
             ),
+            ft.ProgressRing(visible=busy),
             feedback(message, error=has_error),
-            _build_results_table(records, busy=busy),
+            _build_results_table(
+                records,
+                selected_keys=selected_keys,
+                busy=busy,
+                on_selection=change_selection,
+            ),
+            _build_selection_actions(
+                busy=busy,
+                has_results=bool(records),
+                editing=editing_record is not None,
+                on_edit=open_editor,
+            ),
+            edit_form,
             pagination,
         ],
         scroll=ft.ScrollMode.AUTO,
