@@ -14,6 +14,9 @@ from esiqie_dictamenes.core.errors import (
 )
 from esiqie_dictamenes.core.routes import RoutePath
 from esiqie_dictamenes.core.services import build_demo_services
+from esiqie_dictamenes.features.alumnos.views.reprobados import (
+    eligible_subjects_table,
+)
 from esiqie_dictamenes.features.auth.models import Session
 from esiqie_dictamenes.features.dictamenes.models import MateriaElegible
 from esiqie_dictamenes.features.dictamenes.views import crear
@@ -169,16 +172,11 @@ def test_forbidden_response_preserves_the_current_session():
     assert routes == []
 
 
-def test_empty_failed_subject_response_has_a_neutral_message():
-    message = crear._failed_subjects_empty_message(0)
+def test_empty_eligible_subjects_table_renders_no_message():
+    section = eligible_subjects_table(())
 
-    assert message == "El alumno no tiene materias reprobadas registradas."
-
-
-def test_non_eligible_failed_subjects_keep_the_period_rule_message():
-    message = crear._failed_subjects_empty_message(2)
-
-    assert message == "No hay materias que cumplan la regla 19 ≤ diferencia < 29."
+    assert isinstance(section, ft.Container)
+    assert section.content is None
 
 
 def test_create_button_is_disabled_while_a_student_search_is_running():

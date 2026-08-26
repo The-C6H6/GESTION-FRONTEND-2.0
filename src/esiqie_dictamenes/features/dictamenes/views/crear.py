@@ -62,12 +62,6 @@ def _redirect_expired_session(context, error: Exception, navigate: Callable) -> 
     return True
 
 
-def _failed_subjects_empty_message(total_reprobadas: int) -> str:
-    if total_reprobadas == 0:
-        return "El alumno no tiene materias reprobadas registradas."
-    return "No hay materias que cumplan la regla 19 ≤ diferencia < 29."
-
-
 def _creation_error_message(error: Exception) -> str:
     if isinstance(error, (ApiTimeoutError, ApiConnectionError)):
         return (
@@ -236,12 +230,7 @@ def DictamenCreateView() -> ft.Control:
                         ft.Text(alumno.nombre, size=20, weight=ft.FontWeight.BOLD),
                         ft.Text(f"Boleta: {alumno.boleta}"),
                         ft.Text(f"Carrera: {alumno.carrera}"),
-                        eligible_subjects_table(
-                            materias,
-                            empty_message=_failed_subjects_empty_message(
-                                total_reprobadas
-                            ),
-                        )
+                        eligible_subjects_table(materias)
                         if source == "reprobado"
                         else ft.Container(),
                     ]
