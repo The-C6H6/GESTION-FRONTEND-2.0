@@ -9,6 +9,7 @@ from esiqie_dictamenes.core.errors import (
     ApiConnectionError,
     ApiTimeoutError,
     AuthorizationError,
+    BadRequestError,
     NotFoundError,
     SessionExpiredError,
     ServiceUnavailableError,
@@ -27,6 +28,7 @@ def _client(handler, tokens=None):
             "/api/auth/login",
             "/api/inscritos/{boleta}",
             "/api/reprobados",
+            "/api/dictaminaciones",
             "/api/dictaminaciones",
         ),
         tokens or AuthTokenStore(),
@@ -111,6 +113,37 @@ def test_api_client_sends_query_parameters_without_changing_the_path():
     )
 
     assert result == {"items": []}
+
+
+def test_api_client_accepts_integer_query_parameters():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.query == b"anio=2026&skip=100&limit=100"
+        return httpx.Response(200, json={"items": []})
+
+    result = asyncio.run(
+        _client(handler).request_json(
+            "GET",
+            "/api/dictaminaciones",
+            params={"anio": 2026, "skip": 100, "limit": 100},
+        )
+    )
+
+    assert result == {"items": []}
+
+
+def test_api_client_exposes_only_the_safe_400_detail_to_repositories():
+    client = _client(
+        lambda request: httpx.Response(
+            400,
+            json={"detail": "No se encontraron dictaminaciones."},
+        )
+    )
+
+    with pytest.raises(BadRequestError) as captured:
+        asyncio.run(client.request_json("GET", "/api/dictaminaciones"))
+
+    assert captured.value.detail == "No se encontraron dictaminaciones."
+    assert "dictaminaciones" not in str(captured.value)
 
 
 @pytest.mark.parametrize(

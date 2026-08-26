@@ -13,6 +13,7 @@ from .models import (
     Dictamen,
     DictamenCreate,
     DictamenFilter,
+    DictamenPage,
     DictamenUpdate,
     GeneratedDocument,
     MateriaElegible,
@@ -21,7 +22,11 @@ from .models import (
 )
 from .pdf import PdfGenerator
 from .periodos import eligible_subjects
-from .repository import DictamenCreateRepository, DictamenRepository
+from .repository import (
+    DictamenCreateRepository,
+    DictamenRepository,
+    DictamenSearchRepository,
+)
 
 
 @dataclass(frozen=True)
@@ -52,11 +57,13 @@ class DictamenController:
         pdf_generator: PdfGenerator,
         reprobado_repository: ReprobadoRepository | None = None,
         create_repository: DictamenCreateRepository | None = None,
+        search_repository: DictamenSearchRepository | None = None,
     ) -> None:
         self._repository = repository
         self._alumno_repository = alumno_repository
         self._reprobado_repository = reprobado_repository or alumno_repository
         self._create_repository = create_repository or repository
+        self._search_repository = search_repository or repository
         self._pdf_generator = pdf_generator
 
     async def find_student_candidate(
@@ -132,6 +139,23 @@ class DictamenController:
 
     async def search(self, filters: DictamenFilter) -> Sequence[Dictamen]:
         return await self._repository.search(filters)
+
+    async def search_page(
+        self,
+        filters: DictamenFilter,
+        *,
+        page: int,
+    ) -> DictamenPage:
+        if (filters.boleta is None) == (filters.anio is None):
+            raise ValidationError("Selecciona un criterio de bÃºsqueda vÃ¡lido.")
+        if page < 1:
+            raise ValidationError("La pÃ¡gina solicitada no es vÃ¡lida.")
+        limit = 100
+        return await self._search_repository.search_page(
+            filters,
+            skip=(page - 1) * limit,
+            limit=limit,
+        )
 
     async def get(self, clave: str) -> Dictamen:
         return await self._repository.get(clave)

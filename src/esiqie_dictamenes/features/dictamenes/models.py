@@ -19,6 +19,14 @@ class DictamenFilter:
 
 
 @dataclass(frozen=True)
+class DictamenPage:
+    total: int
+    skip: int
+    limit: int
+    items: tuple[Dictamen, ...]
+
+
+@dataclass(frozen=True)
 class DictamenCreate:
     boleta: str
     nombre: str

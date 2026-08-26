@@ -7,6 +7,7 @@ from esiqie_dictamenes.core.errors import (
     ApiConnectionError,
     ApiTimeoutError,
     AuthorizationError,
+    BadRequestError,
     NotFoundError,
     SessionExpiredError,
     ServiceUnavailableError,
@@ -37,7 +38,7 @@ class ApiClient:
         path: str,
         *,
         json: object | None = None,
-        params: Mapping[str, str] | None = None,
+        params: Mapping[str, str | int] | None = None,
         expected_status: int | None = None,
     ) -> object:
         headers = {"Accept": "application/json"}
@@ -72,7 +73,7 @@ class ApiClient:
             )
             raise ApiConnectionError() from error
 
-        self._raise_for_status(response.status_code)
+        self._raise_for_status(response)
         if expected_status is not None and response.status_code != expected_status:
             raise UnexpectedResponseError()
         try:
@@ -84,14 +85,15 @@ class ApiClient:
             )
             raise UnexpectedResponseError() from error
 
-    def _raise_for_status(self, status_code: int) -> None:
+    def _raise_for_status(self, response: httpx.Response) -> None:
+        status_code = response.status_code
         if status_code < 400:
             return
         if status_code == 401:
             self._tokens.clear()
             raise SessionExpiredError()
         if status_code == 400:
-            raise ValidationError()
+            raise BadRequestError(self._safe_error_detail(response))
         if status_code == 403:
             raise AuthorizationError()
         if status_code == 404:
@@ -101,3 +103,14 @@ class ApiClient:
         if 500 <= status_code < 600:
             raise ServiceUnavailableError()
         raise UnexpectedResponseError()
+
+    @staticmethod
+    def _safe_error_detail(response: httpx.Response) -> str | None:
+        try:
+            payload = response.json()
+        except ValueError:
+            return None
+        if not isinstance(payload, dict):
+            return None
+        detail = payload.get("detail")
+        return detail if isinstance(detail, str) else None

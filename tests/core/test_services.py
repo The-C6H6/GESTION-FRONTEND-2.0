@@ -42,6 +42,7 @@ def test_production_services_use_api_login_and_store_tokens():
             "/api/inscritos/{boleta}",
             "/api/reprobados",
             "/api/dictaminaciones",
+            "/api/dictaminaciones",
         ),
         transport=httpx.MockTransport(handler),
     )
@@ -64,6 +65,7 @@ def test_production_services_keep_user_registration_in_demo_mode():
             "/api/auth/login",
             "/api/inscritos/{boleta}",
             "/api/reprobados",
+            "/api/dictaminaciones",
             "/api/dictaminaciones",
         ),
         transport=httpx.MockTransport(reject_network),
@@ -116,6 +118,7 @@ def test_production_services_share_login_token_with_inscritos():
             "/api/inscritos/{boleta}",
             "/api/reprobados",
             "/api/dictaminaciones",
+            "/api/dictaminaciones",
         ),
         transport=httpx.MockTransport(handler),
     )
@@ -158,6 +161,7 @@ def test_production_services_share_login_token_with_reprobados():
             "/api/auth/login",
             "/api/inscritos/{boleta}",
             "/api/reprobados",
+            "/api/dictaminaciones",
             "/api/dictaminaciones",
         ),
         transport=httpx.MockTransport(handler),
@@ -205,6 +209,7 @@ def test_production_services_create_rulings_through_the_api_only():
             "/api/inscritos/{boleta}",
             "/api/reprobados",
             "/api/dictaminaciones",
+            "/api/dictaminaciones",
         ),
         transport=httpx.MockTransport(handler),
     )
@@ -228,7 +233,33 @@ def test_production_services_create_rulings_through_the_api_only():
     assert [request.method for request in requests] == ["POST", "GET", "POST"]
 
 
-def test_production_services_keep_ruling_reads_in_demo_mode():
+def test_production_services_search_rulings_through_the_shared_api_client():
+    paths = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        paths.append(request.url.path)
+        if request.url.path == "/api/auth/login":
+            return httpx.Response(
+                200,
+                json={
+                    "access_token": "shared-access",
+                    "refresh_token": "shared-refresh",
+                    "token_type": "bearer",
+                },
+            )
+        assert request.url.path == "/api/dictaminaciones"
+        assert request.headers["Authorization"] == "Bearer shared-access"
+        assert request.url.query == b"anio=2026&skip=0&limit=100"
+        return httpx.Response(
+            200,
+            json={
+                "total": 1,
+                "skip": 0,
+                "limit": 100,
+                "items": [CREATED_RESPONSE],
+            },
+        )
+
     services = build_services(
         settings=ApiSettings(
             "http://api.test",
@@ -236,14 +267,19 @@ def test_production_services_keep_ruling_reads_in_demo_mode():
             "/api/inscritos/{boleta}",
             "/api/reprobados",
             "/api/dictaminaciones",
+            "/api/dictaminaciones",
         ),
-        transport=httpx.MockTransport(
-            lambda request: pytest.fail("Demo reads must not call the API.")
-        ),
+        transport=httpx.MockTransport(handler),
+    )
+    asyncio.run(services.auth_controller.login("directivo", "secreto"))
+
+    result = asyncio.run(
+        services.dictamen_controller.search_page(
+            DictamenFilter(anio=2026),
+            page=1,
+        )
     )
 
-    records = asyncio.run(
-        services.dictamen_controller.search(DictamenFilter(anio=2025))
-    )
-
-    assert records
+    assert result.total == 1
+    assert result.items[0].clave == "CSE-0001-26"
+    assert paths == ["/api/auth/login", "/api/dictaminaciones"]

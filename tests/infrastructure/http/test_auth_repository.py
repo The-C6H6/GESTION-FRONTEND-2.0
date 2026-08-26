@@ -21,6 +21,7 @@ def _repository(handler):
         "/api/inscritos/{boleta}",
         "/api/reprobados",
         "/api/dictaminaciones",
+        "/api/dictaminaciones",
     )
     tokens = AuthTokenStore()
     client = ApiClient(

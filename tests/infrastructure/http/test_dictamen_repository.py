@@ -16,7 +16,7 @@ from esiqie_dictamenes.core.errors import (
     ValidationError,
 )
 from esiqie_dictamenes.core.settings import ApiSettings
-from esiqie_dictamenes.features.dictamenes.models import DictamenCreate
+from esiqie_dictamenes.features.dictamenes.models import DictamenCreate, DictamenFilter
 from esiqie_dictamenes.infrastructure.http.api_client import ApiClient
 from esiqie_dictamenes.infrastructure.http.dictamen_repository import (
     ApiDictamenRepository,
@@ -41,6 +41,24 @@ CREATED_RESPONSE = {
     "Clave": "CSE-0001-26",
 }
 
+SEARCH_ITEM = {
+    "Boleta": "2022630000",
+    "Nombre": "NOMBRE DEL ALUMNO",
+    "Fecha": "2026-08-26",
+    "Anio": 2026,
+    "Dictaminacion": "CONTENIDO CONFIDENCIAL DEL DICTAMEN",
+    "Clave": "CSE-0001-26",
+}
+
+
+def search_page(*items, total=None, skip=0, limit=100):
+    return {
+        "total": len(items) if total is None else total,
+        "skip": skip,
+        "limit": limit,
+        "items": list(items),
+    }
+
 
 def _repository(handler):
     settings = ApiSettings(
@@ -48,6 +66,7 @@ def _repository(handler):
         "/api/auth/login",
         "/api/inscritos/{boleta}",
         "/api/reprobados",
+        "/api/dictaminaciones",
         "/api/dictaminaciones",
     )
     tokens = AuthTokenStore()
@@ -57,7 +76,149 @@ def _repository(handler):
         tokens,
         transport=httpx.MockTransport(handler),
     )
-    return ApiDictamenRepository(client, settings.dictamen_create_path), tokens
+    return (
+        ApiDictamenRepository(
+            client,
+            settings.dictamen_create_path,
+            settings.dictamen_search_path,
+        ),
+        tokens,
+    )
+
+
+@pytest.mark.parametrize(
+    ("filters", "skip", "expected_query"),
+    [
+        (
+            DictamenFilter(boleta="2022630000"),
+            0,
+            "boleta=2022630000&skip=0&limit=100",
+        ),
+        (DictamenFilter(anio=2026), 100, "anio=2026&skip=100&limit=100"),
+    ],
+)
+def test_search_sends_exact_filter_and_pagination_parameters(
+    filters,
+    skip,
+    expected_query,
+):
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert request.url.path == "/api/dictaminaciones"
+        assert request.url.query.decode() == expected_query
+        assert request.headers["Authorization"] == "Bearer access-secret"
+        return httpx.Response(
+            200,
+            json=search_page(SEARCH_ITEM, total=101, skip=skip),
+        )
+
+    repository, _ = _repository(handler)
+
+    result = asyncio.run(repository.search_page(filters, skip=skip, limit=100))
+
+    assert result.total == 101
+    assert result.skip == skip
+    assert result.limit == 100
+    assert len(result.items) == 1
+    assert result.items[0].fecha == date(2026, 8, 26)
+    assert result.items[0].clave == "CSE-0001-26"
+
+
+def test_search_maps_the_known_empty_400_to_an_empty_page_only():
+    repository, _ = _repository(
+        lambda request: httpx.Response(
+            400,
+            json={
+                "detail": (
+                    "No se encontraron dictaminaciones con los datos "
+                    "proporcionados."
+                )
+            },
+        )
+    )
+
+    result = asyncio.run(
+        repository.search_page(
+            DictamenFilter(boleta="2022630000"),
+            skip=0,
+            limit=100,
+        )
+    )
+
+    assert result.total == 0
+    assert result.items == ()
+
+
+def test_search_preserves_unrelated_400_as_validation_error():
+    repository, _ = _repository(
+        lambda request: httpx.Response(
+            400,
+            json={"detail": "El filtro no estÃ¡ permitido."},
+        )
+    )
+
+    with pytest.raises(ValidationError):
+        asyncio.run(
+            repository.search_page(
+                DictamenFilter(anio=2026),
+                skip=0,
+                limit=100,
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    "response_json",
+    [
+        [],
+        {"total": 0, "skip": 0, "limit": 100},
+        search_page(total=-1),
+        search_page(total=0, skip=-1),
+        search_page(total=0, limit=0),
+        search_page(SEARCH_ITEM, total=1, limit=1),
+        search_page(SEARCH_ITEM, total=0),
+        search_page({**SEARCH_ITEM, "Fecha": "26 DE AGOSTO"}),
+        search_page({**SEARCH_ITEM, "Anio": "2026"}),
+        search_page({key: value for key, value in SEARCH_ITEM.items() if key != "Clave"}),
+    ],
+)
+def test_search_rejects_a_malformed_paginated_contract(response_json):
+    repository, _ = _repository(
+        lambda request: httpx.Response(200, json=response_json)
+    )
+
+    with pytest.raises(UnexpectedResponseError):
+        asyncio.run(
+            repository.search_page(
+                DictamenFilter(boleta="2022630000"),
+                skip=0,
+                limit=100,
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    ("status_code", "expected_error"),
+    [
+        (401, SessionExpiredError),
+        (403, AuthorizationError),
+        (422, ValidationError),
+        (500, ServiceUnavailableError),
+    ],
+)
+def test_search_propagates_controlled_http_errors(status_code, expected_error):
+    repository, _ = _repository(
+        lambda request: httpx.Response(status_code, json={"detail": "error"})
+    )
+
+    with pytest.raises(expected_error):
+        asyncio.run(
+            repository.search_page(
+                DictamenFilter(anio=2026),
+                skip=0,
+                limit=100,
+            )
+        )
 
 
 def test_create_sends_the_exact_api_payload_and_maps_the_created_ruling():

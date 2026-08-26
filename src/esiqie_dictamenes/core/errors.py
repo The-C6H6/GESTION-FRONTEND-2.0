@@ -9,6 +9,14 @@ class ValidationError(AppError):
         super().__init__(message)
 
 
+class BadRequestError(ValidationError):
+    """Preserve a safe API detail so a repository can interpret its own 400."""
+
+    def __init__(self, detail: str | None = None) -> None:
+        super().__init__()
+        self.detail = detail
+
+
 class NotFoundError(AppError):
     """Raised when a requested demo or API resource does not exist."""
 

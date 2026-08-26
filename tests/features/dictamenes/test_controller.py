@@ -7,7 +7,9 @@ import pytest
 from esiqie_dictamenes.core.errors import NotFoundError, ValidationError
 from esiqie_dictamenes.features.dictamenes.controller import DictamenController
 from esiqie_dictamenes.features.dictamenes.models import (
+    Dictamen,
     DictamenFilter,
+    DictamenPage,
     MateriaReprobada,
 )
 from esiqie_dictamenes.infrastructure.demo.alumno_repository import DemoAlumnoRepository
@@ -230,6 +232,62 @@ def test_search_returns_all_rulings_for_the_requested_boleta():
     result = asyncio.run(controller.search(DictamenFilter(boleta="2024320678")))
 
     assert len(result) == 3
+
+
+def test_paginated_search_converts_page_number_to_skip_and_preserves_filter():
+    expected = DictamenPage(
+        total=347,
+        skip=100,
+        limit=100,
+        items=(
+            Dictamen(
+                "CSE-0101-26",
+                "2022630000",
+                "NOMBRE DEL ALUMNO",
+                date(2026, 8, 26),
+                2026,
+                "DICTAMINACIÃ“N",
+            ),
+        ),
+    )
+
+    class SearchRepository:
+        def __init__(self):
+            self.calls = []
+
+        async def search_page(self, filters, *, skip, limit):
+            self.calls.append((filters, skip, limit))
+            return expected
+
+    search_repository = SearchRepository()
+    controller = DictamenController(
+        DemoDictamenRepository(),
+        DemoAlumnoRepository(),
+        DemoPdfGenerator(),
+        search_repository=search_repository,
+    )
+
+    result = asyncio.run(
+        controller.search_page(DictamenFilter(anio=2026), page=2)
+    )
+
+    assert result is expected
+    assert search_repository.calls == [(DictamenFilter(anio=2026), 100, 100)]
+
+
+@pytest.mark.parametrize(
+    ("filters", "page"),
+    [
+        (DictamenFilter(), 1),
+        (DictamenFilter(boleta="2022630000", anio=2026), 1),
+        (DictamenFilter(boleta="2022630000"), 0),
+    ],
+)
+def test_paginated_search_rejects_invalid_filter_or_page(filters, page):
+    controller = build_controller()
+
+    with pytest.raises(ValidationError):
+        asyncio.run(controller.search_page(filters, page=page))
 
 
 def test_update_preserves_read_only_ruling_metadata():

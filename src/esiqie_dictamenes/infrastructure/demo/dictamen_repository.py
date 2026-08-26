@@ -6,6 +6,7 @@ from esiqie_dictamenes.features.dictamenes.models import (
     Dictamen,
     DictamenCreate,
     DictamenFilter,
+    DictamenPage,
     DictamenUpdate,
 )
 
@@ -22,6 +23,21 @@ class DemoDictamenRepository:
             for record in self._records
             if (not filters.boleta or record.boleta == filters.boleta)
             and (filters.anio is None or record.anio == filters.anio)
+        )
+
+    async def search_page(
+        self,
+        filters: DictamenFilter,
+        *,
+        skip: int,
+        limit: int,
+    ) -> DictamenPage:
+        records = tuple(await self.search(filters))
+        return DictamenPage(
+            total=len(records),
+            skip=skip,
+            limit=limit,
+            items=records[skip : skip + limit],
         )
 
     async def get(self, clave: str) -> Dictamen:

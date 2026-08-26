@@ -22,6 +22,23 @@ def test_dictamen_search_filters_by_year():
     assert {record.anio for record in records} == {2025}
 
 
+def test_demo_dictamen_search_page_returns_page_metadata_without_accumulating():
+    repository = DemoDictamenRepository()
+
+    page = asyncio.run(
+        repository.search_page(
+            DictamenFilter(boleta="2024320678"),
+            skip=1,
+            limit=1,
+        )
+    )
+
+    assert page.total == 3
+    assert page.skip == 1
+    assert page.limit == 1
+    assert [record.clave for record in page.items] == ["D-00132"]
+
+
 def test_delete_many_removes_exactly_the_selected_keys():
     repository = DemoDictamenRepository()
 

@@ -1,11 +1,27 @@
 from collections.abc import Sequence
 from typing import Protocol
 
-from .models import Dictamen, DictamenCreate, DictamenFilter, DictamenUpdate
+from .models import (
+    Dictamen,
+    DictamenCreate,
+    DictamenFilter,
+    DictamenPage,
+    DictamenUpdate,
+)
 
 
 class DictamenCreateRepository(Protocol):
     async def create(self, payload: DictamenCreate) -> Dictamen: ...
+
+
+class DictamenSearchRepository(Protocol):
+    async def search_page(
+        self,
+        filters: DictamenFilter,
+        *,
+        skip: int,
+        limit: int,
+    ) -> DictamenPage: ...
 
 
 class DictamenRepository(DictamenCreateRepository, Protocol):
