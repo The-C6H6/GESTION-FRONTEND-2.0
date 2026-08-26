@@ -190,6 +190,27 @@ def test_update_commits_only_after_repository_success():
     assert committed == []
 
 
+def test_unchanged_update_does_not_commit_a_false_success():
+    current = _record()
+    committed = []
+
+    class UnchangedController:
+        async def update_dictaminacion(self, record, value):
+            return record
+
+    changed = asyncio.run(
+        buscar._load_update(
+            UnchangedController(),
+            current,
+            "  DICTAMEN ORIGINAL  ",
+            committed.append,
+        )
+    )
+
+    assert changed is False
+    assert committed == []
+
+
 def test_update_guard_rejects_a_second_concurrent_save():
     async def scenario():
         gate = buscar._RequestGate()

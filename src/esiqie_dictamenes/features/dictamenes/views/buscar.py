@@ -129,9 +129,12 @@ async def _load_update(
     current: Dictamen,
     value: str,
     commit: Callable[[Dictamen], None],
-) -> None:
+) -> bool:
     updated = await controller.update_dictaminacion(current, value)
+    if updated == current:
+        return False
     commit(updated)
+    return True
 
 
 def _update_error_message(
@@ -381,12 +384,15 @@ def DictamenSearchView() -> ft.Control:
 
         async def operation() -> None:
             try:
-                await _load_update(
+                changed = await _load_update(
                     context.services.dictamen_controller,
                     editing_record,
                     edit_value,
                     commit_update,
                 )
+                if not changed:
+                    set_message("No hay cambios por guardar.")
+                    set_has_error(False)
             except Exception as error:
                 set_message(
                     _update_error_message(
