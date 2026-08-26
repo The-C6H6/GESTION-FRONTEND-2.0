@@ -75,6 +75,39 @@ def _creation_success_message(clave: str) -> str:
     return f"Dictamen creado correctamente. Clave: {clave}"
 
 
+def _build_failed_subjects_section(
+    materias: tuple,
+    total_reprobadas: int,
+) -> ft.Control:
+    if materias:
+        return eligible_subjects_table(materias)
+    if total_reprobadas > 0:
+        return ft.Column(
+            [
+                ft.Text(f"Materias reprobadas: {total_reprobadas}"),
+                ft.Text(
+                    "El alumno no puede dictaminarse por que no tiene materias "
+                    "que se puedan dictaminar"
+                ),
+            ]
+        )
+    return ft.Container()
+
+
+def _is_ruling_unavailable(
+    source: str,
+    alumno: object | None,
+    materias: tuple,
+    total_reprobadas: int,
+) -> bool:
+    return (
+        source == "reprobado"
+        and alumno is not None
+        and not materias
+        and total_reprobadas > 0
+    )
+
+
 def _change_search_criterion(
     value: str,
     set_criterion: Callable[[str], None],
@@ -92,11 +125,13 @@ def _build_create_button(
     search_busy: bool,
     create_busy: bool,
     on_click: Callable,
+    *,
+    ruling_unavailable: bool = False,
 ) -> ft.Button:
     return ft.Button(
         "Crear dictamen",
         on_click=on_click,
-        disabled=search_busy or create_busy,
+        disabled=search_busy or create_busy or ruling_unavailable,
         key="dictamen-create",
     )
 
@@ -189,6 +224,11 @@ def DictamenCreateView() -> ft.Control:
         async def operation() -> None:
             if alumno is None:
                 raise ValueError("Primero busca y selecciona un alumno.")
+            if ruling_unavailable:
+                raise ValueError(
+                    "El alumno no puede dictaminarse por que no tiene materias "
+                    "que se puedan dictaminar"
+                )
             result = await context.services.dictamen_controller.create(
                 alumno=alumno,
                 dictaminacion=dictaminacion,
@@ -219,6 +259,12 @@ def DictamenCreateView() -> ft.Control:
             )
 
     interaction_busy = search_busy or create_busy
+    ruling_unavailable = _is_ruling_unavailable(
+        source,
+        alumno,
+        materias,
+        total_reprobadas,
+    )
 
     student_card = ft.Container()
     if alumno:
@@ -230,7 +276,10 @@ def DictamenCreateView() -> ft.Control:
                         ft.Text(alumno.nombre, size=20, weight=ft.FontWeight.BOLD),
                         ft.Text(f"Boleta: {alumno.boleta}"),
                         ft.Text(f"Carrera: {alumno.carrera}"),
-                        eligible_subjects_table(materias)
+                        _build_failed_subjects_section(
+                            materias,
+                            total_reprobadas,
+                        )
                         if source == "reprobado"
                         else ft.Container(),
                     ]
@@ -333,7 +382,14 @@ def DictamenCreateView() -> ft.Control:
                 key="dictamen-text",
             ),
             ft.Row(
-                [_build_create_button(search_busy, create_busy, create)],
+                [
+                    _build_create_button(
+                        search_busy,
+                        create_busy,
+                        create,
+                        ruling_unavailable=ruling_unavailable,
+                    )
+                ],
                 alignment=ft.MainAxisAlignment.END,
             ),
         ],

@@ -179,6 +179,57 @@ def test_empty_eligible_subjects_table_renders_no_message():
     assert section.content is None
 
 
+def test_non_eligible_failed_subjects_show_count_and_unavailable_message():
+    section = crear._build_failed_subjects_section((), total_reprobadas=3)
+
+    assert isinstance(section, ft.Column)
+    assert [control.value for control in section.controls] == [
+        "Materias reprobadas: 3",
+        (
+            "El alumno no puede dictaminarse por que no tiene materias "
+            "que se puedan dictaminar"
+        ),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("source", "alumno", "materias", "total_reprobadas", "expected"),
+    [
+        ("reprobado", object(), (), 3, True),
+        ("reprobado", object(), (MateriaElegible("Cálculo", 20252, 19),), 3, False),
+        ("inscrito", object(), (), 0, False),
+        ("reprobado", None, (), 0, False),
+    ],
+)
+def test_ruling_is_unavailable_only_for_selected_failed_students_without_eligible_subjects(
+    source,
+    alumno,
+    materias,
+    total_reprobadas,
+    expected,
+):
+    assert (
+        crear._is_ruling_unavailable(
+            source,
+            alumno,
+            materias,
+            total_reprobadas,
+        )
+        is expected
+    )
+
+
+def test_create_button_is_disabled_when_the_ruling_is_unavailable():
+    button = crear._build_create_button(
+        search_busy=False,
+        create_busy=False,
+        on_click=lambda: None,
+        ruling_unavailable=True,
+    )
+
+    assert button.disabled is True
+
+
 def test_create_button_is_disabled_while_a_student_search_is_running():
     button = crear._build_create_button(
         search_busy=True,
