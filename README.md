@@ -1,6 +1,6 @@
 # ESIQIE-DICTÁMENES
 
-Frontend Flet para gestionar dictámenes de estudiantes de ESIQIE. El login, la consulta de alumnos inscritos y sus materias reprobadas consumen la API real; los demás casos de uso continúan con adaptadores de demostración.
+Frontend Flet para gestionar dictámenes de estudiantes de ESIQIE. El login, la consulta de alumnos inscritos, sus materias reprobadas y la creación de dictámenes consumen la API real; los demás casos de uso continúan con adaptadores de demostración.
 
 ## Requisitos
 
@@ -24,7 +24,8 @@ La ejecución local carga `.env` mediante `python-dotenv`. Debe definir:
 - `API_BASE_URL` o, por compatibilidad, `IP_ADDRESS`;
 - `RUTA_LOGIN`;
 - `RUTA_VISUALIZAR_INSCRITOS`, con el marcador `{boleta}`;
-- `RUTA_REPROBADOS`, como ruta relativa sin parámetros, query ni fragmento.
+- `RUTA_REPROBADOS`, como ruta relativa sin parámetros, query ni fragmento;
+- `RUTA_GENERAR_DICTAMEN`, como ruta relativa sin parámetros, query, fragmento ni marcadores.
 
 Consulta `.env.example` para las rutas disponibles. No incluyas credenciales ni tokens en archivos versionados.
 
@@ -44,10 +45,10 @@ Abre `http://127.0.0.1:8501`. El backend configurado debe estar disponible para 
 
 ## Alcance actual
 
-- Login, búsqueda de inscritos y consulta paginada de materias reprobadas mediante API, con un mismo token Bearer efímero en memoria.
+- Login, búsqueda de inscritos, consulta paginada de materias reprobadas y creación de dictámenes mediante API, con un mismo token Bearer efímero en memoria.
 - Cierre de sesión manual o automático ante una respuesta `401`, navegación privada y página 404.
-- Búsqueda, creación, eliminación y modificación simulada de dictámenes.
-- Simulación del contexto de generación PDF, incluido el nombre del director.
+- Búsqueda, eliminación y modificación simulada de dictámenes.
+- Preparación separada del contexto PDF, incluido el nombre del director, sin generar todavía un archivo real después de crear el dictamen.
 - Presentación de los datos académicos del inscrito y selección automática de materias reprobadas elegibles obtenidas de la API.
 - Registro simulado de usuarios estándar o administradores.
 
