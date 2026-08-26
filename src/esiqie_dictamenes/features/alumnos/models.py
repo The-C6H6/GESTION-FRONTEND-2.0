@@ -2,6 +2,13 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
+class AlumnoDictaminable:
+    boleta: str
+    nombre: str
+    carrera: str
+
+
+@dataclass(frozen=True)
 class Inscrito:
     boleta: str
     nombre: str

@@ -41,43 +41,34 @@ def test_picker_datetime_is_normalized_to_a_date_object():
     assert type(result) is date
 
 
-def test_failed_subject_search_uses_the_selected_enrolled_student():
-    selected_student = SimpleNamespace(boleta="2024320678")
+def test_student_search_delegates_the_selected_source_to_the_use_case():
+    selected_student = SimpleNamespace(boleta="2024999999")
     candidate = SimpleNamespace(
         alumno=selected_student,
         materias=(MateriaElegible("Cálculo", 20252, 19),),
         total_reprobadas=1,
     )
 
-    class AlumnoControllerSpy:
-        def __init__(self):
-            self.queries = []
-
-        async def find_inscrito(self, query):
-            self.queries.append(query)
-            return selected_student
-
     class DictamenControllerSpy:
         def __init__(self):
             self.calls = []
 
-        async def find_reprobado_candidate_for_student(self, alumno, period):
-            self.calls.append((alumno, period))
+        async def find_student_candidate(self, source, query, period):
+            self.calls.append((source, query, period))
             return candidate
 
-    alumno_controller = AlumnoControllerSpy()
     dictamen_controller = DictamenControllerSpy()
     services = SimpleNamespace(
-        alumno_controller=alumno_controller,
         dictamen_controller=dictamen_controller,
     )
 
     result = asyncio.run(
-        crear._find_student(services, "reprobado", "2024320678", "20271")
+        crear._find_student(services, "reprobado", "2024999999", "20271")
     )
 
-    assert alumno_controller.queries == ["2024320678"]
-    assert dictamen_controller.calls == [(selected_student, "20271")]
+    assert dictamen_controller.calls == [
+        ("reprobado", "2024999999", "20271")
+    ]
     assert result.alumno is selected_student
     assert result.total_reprobadas == 1
 

@@ -3,9 +3,9 @@ from dataclasses import dataclass
 from datetime import date
 
 from esiqie_dictamenes.core.errors import NotFoundError, ValidationError
-from esiqie_dictamenes.features.alumnos.models import Inscrito
+from esiqie_dictamenes.features.alumnos.models import AlumnoDictaminable, Inscrito
 from esiqie_dictamenes.features.alumnos.repository import (
-    AlumnoRepository,
+    InscritoRepository,
     ReprobadoRepository,
 )
 
@@ -16,6 +16,7 @@ from .models import (
     DictamenUpdate,
     GeneratedDocument,
     MateriaElegible,
+    MateriaReprobada,
     PdfRequest,
 )
 from .pdf import PdfGenerator
@@ -31,8 +32,8 @@ class CreatedDictamen:
 
 
 @dataclass(frozen=True)
-class ReprobadoCandidate:
-    alumno: Inscrito
+class StudentCandidate:
+    alumno: AlumnoDictaminable
     materias: tuple[MateriaElegible, ...]
     total_reprobadas: int
 
@@ -47,7 +48,7 @@ class DictamenController:
     def __init__(
         self,
         repository: DictamenRepository,
-        alumno_repository: AlumnoRepository,
+        alumno_repository: InscritoRepository,
         pdf_generator: PdfGenerator,
         reprobado_repository: ReprobadoRepository | None = None,
         create_repository: DictamenCreateRepository | None = None,
@@ -58,6 +59,29 @@ class DictamenController:
         self._create_repository = create_repository or repository
         self._pdf_generator = pdf_generator
 
+    async def find_student_candidate(
+        self,
+        source: str,
+        query: str,
+        period: str,
+    ) -> StudentCandidate:
+        normalized = query.strip()
+        if not normalized:
+            raise ValidationError("Escribe el número de boleta.")
+        if source == "inscrito":
+            inscrito = await self._alumno_repository.get_inscrito(normalized)
+            return StudentCandidate(self._from_inscrito(inscrito), (), 0)
+        if source == "reprobado":
+            records = await self._reprobado_repository.search_reprobados(
+                boleta=normalized
+            )
+            if not records:
+                raise NotFoundError(
+                    "No se encontraron materias reprobadas para la boleta indicada."
+                )
+            return self._candidate_from_reprobados(records, period)
+        raise ValidationError("Selecciona un tipo de alumno válido.")
+
     async def find_eligible_reprobados(
         self, query: str, period: str
     ) -> tuple[MateriaElegible, ...]:
@@ -65,7 +89,7 @@ class DictamenController:
 
     async def find_reprobado_candidate(
         self, query: str, period: str
-    ) -> ReprobadoCandidate:
+    ) -> StudentCandidate:
         normalized = query.strip()
         if not normalized:
             raise ValidationError("Escribe una boleta o nombre de alumno.")
@@ -79,20 +103,28 @@ class DictamenController:
             )
         if not records:
             raise NotFoundError("No se encontraron materias reprobadas para el alumno.")
-        alumno = await self._alumno_repository.get_inscrito(records[0].boleta)
-        return ReprobadoCandidate(
-            alumno,
-            eligible_subjects(period, records),
-            len(records),
+        return self._candidate_from_reprobados(records, period)
+
+    @staticmethod
+    def _from_inscrito(inscrito: Inscrito) -> AlumnoDictaminable:
+        return AlumnoDictaminable(
+            boleta=inscrito.boleta,
+            nombre=inscrito.nombre,
+            carrera=inscrito.carrera,
         )
 
-    async def find_reprobado_candidate_for_student(
-        self, alumno: Inscrito, period: str
-    ) -> ReprobadoCandidate:
-        records = await self._reprobado_repository.search_reprobados(
-            boleta=alumno.boleta
+    @staticmethod
+    def _candidate_from_reprobados(
+        records: Sequence[MateriaReprobada],
+        period: str,
+    ) -> StudentCandidate:
+        first = records[0]
+        alumno = AlumnoDictaminable(
+            boleta=first.boleta,
+            nombre=first.nombre,
+            carrera=first.carrera,
         )
-        return ReprobadoCandidate(
+        return StudentCandidate(
             alumno,
             eligible_subjects(period, records),
             len(records),
@@ -124,7 +156,7 @@ class DictamenController:
 
     async def create(
         self,
-        alumno: Inscrito,
+        alumno: AlumnoDictaminable | Inscrito,
         dictaminacion: str,
         director: str,
         materias: Sequence[MateriaElegible],

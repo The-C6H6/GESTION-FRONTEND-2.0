@@ -45,10 +45,15 @@ class ApiReprobadoRepository:
                 or total != len(items)
             ):
                 raise ValueError("partial page")
-            return tuple(
+            records = tuple(
                 cls._parse_item(item, expected_boleta=expected_boleta)
                 for item in items
             )
+            if len(
+                {(record.boleta, record.nombre, record.carrera) for record in records}
+            ) > 1:
+                raise ValueError("inconsistent student")
+            return records
         except (KeyError, TypeError, ValueError) as error:
             raise UnexpectedResponseError() from error
 
@@ -67,7 +72,7 @@ class ApiReprobadoRepository:
         nombre = cls._string(item, "Nombre")
         cls._string(item, "Turno")
         cls._optional_string(item, "E_Mail_Personal")
-        cls._string(item, "Carrera")
+        carrera = cls._string(item, "Carrera")
         cls._integer(item, "Plan_estud")
         materia = cls._string(item, "Materia")
         cls._string(item, "Departamento")
@@ -86,6 +91,7 @@ class ApiReprobadoRepository:
             periodo_reprobada=periodo_reprobada,
             boleta=boleta,
             nombre=nombre,
+            carrera=carrera,
         )
 
     @staticmethod

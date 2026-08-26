@@ -85,6 +85,7 @@ def test_reprobado_repository_sends_boleta_as_query_and_maps_one_item():
     assert len(result) == 1
     assert result[0].boleta == "2022630000"
     assert result[0].nombre == "NOMBRE DEL ALUMNO"
+    assert result[0].carrera == "INGENIERIA QUIMICA INDUSTRIAL"
     assert result[0].materia == "TERMODINAMICA"
     assert result[0].periodo_reprobada == 20243
 
@@ -127,6 +128,24 @@ def test_reprobado_repository_rejects_an_item_from_another_student():
         lambda request: httpx.Response(
             200,
             json=paginated_response(crossed_item),
+        )
+    )
+
+    with pytest.raises(UnexpectedResponseError):
+        asyncio.run(repository.search_reprobados(boleta="2022630000"))
+
+
+def test_reprobado_repository_rejects_inconsistent_common_student_data():
+    conflicting_item = {
+        **REPROBADO_ITEM,
+        "Nombre": "OTRO ALUMNO",
+        "Materia": "CALCULO DIFERENCIAL",
+        "id": 124,
+    }
+    repository, _ = _repository(
+        lambda request: httpx.Response(
+            200,
+            json=paginated_response(REPROBADO_ITEM, conflicting_item),
         )
     )
 

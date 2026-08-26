@@ -38,6 +38,7 @@ class MateriaReprobada:
     periodo_reprobada: int
     boleta: str = ""
     nombre: str = ""
+    carrera: str = ""
 
 
 @dataclass(frozen=True)

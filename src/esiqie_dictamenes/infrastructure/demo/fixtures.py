@@ -46,7 +46,25 @@ INSCRITOS = {
 }
 
 REPROBADOS = (
-    MateriaReprobada("Cálculo diferencial", 20252, "2024320678", "Ana López Martínez"),
-    MateriaReprobada("Termodinámica", 20243, "2024320678", "Ana López Martínez"),
-    MateriaReprobada("Álgebra lineal", 20242, "2024320678", "Ana López Martínez"),
+    MateriaReprobada(
+        "Cálculo diferencial",
+        20252,
+        "2024320678",
+        "Ana López Martínez",
+        "Ingeniería Química Industrial",
+    ),
+    MateriaReprobada(
+        "Termodinámica",
+        20243,
+        "2024320678",
+        "Ana López Martínez",
+        "Ingeniería Química Industrial",
+    ),
+    MateriaReprobada(
+        "Álgebra lineal",
+        20242,
+        "2024320678",
+        "Ana López Martínez",
+        "Ingeniería Química Industrial",
+    ),
 )

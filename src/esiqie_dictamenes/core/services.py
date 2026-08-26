@@ -72,7 +72,6 @@ def build_services(
         settings.login_path,
     )
     user_repository = DemoAuthRepository()
-    demo_alumno_repository = DemoAlumnoRepository()
     dictamen_repository = DemoDictamenRepository()
     pdf_generator = DemoPdfGenerator()
     inscrito_repository = ApiInscritoRepository(
@@ -92,7 +91,7 @@ def build_services(
         user_controller=UserController(user_repository),
         dictamen_controller=DictamenController(
             dictamen_repository,
-            demo_alumno_repository,
+            inscrito_repository,
             pdf_generator,
             reprobado_repository=reprobado_repository,
             create_repository=create_repository,

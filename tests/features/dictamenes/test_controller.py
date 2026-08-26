@@ -1,9 +1,10 @@
 import asyncio
 from datetime import date
+from types import SimpleNamespace
 
 import pytest
 
-from esiqie_dictamenes.core.errors import ValidationError
+from esiqie_dictamenes.core.errors import NotFoundError, ValidationError
 from esiqie_dictamenes.features.dictamenes.controller import DictamenController
 from esiqie_dictamenes.features.dictamenes.models import (
     DictamenFilter,
@@ -43,10 +44,38 @@ def test_reprobados_flow_resolves_student_data_when_searching_by_name():
     ]
 
 
-def test_reprobados_flow_uses_the_selected_student_boleta_without_fetching_again():
+def test_enrolled_source_uses_only_the_enrolled_student_repository():
+    alumno = asyncio.run(DemoAlumnoRepository().get_inscrito("2024320678"))
+
+    class EnrolledRepository:
+        async def get_inscrito(self, boleta):
+            assert boleta == "2024320678"
+            return alumno
+
+    class RejectingReprobadoRepository:
+        async def search_reprobados(self, boleta=None, nombre=None):
+            raise AssertionError("The failed-subject repository must not be called.")
+
+    controller = DictamenController(
+        DemoDictamenRepository(),
+        EnrolledRepository(),
+        DemoPdfGenerator(),
+        reprobado_repository=RejectingReprobadoRepository(),
+    )
+
+    result = asyncio.run(
+        controller.find_student_candidate("inscrito", "2024320678", "20271")
+    )
+
+    assert result.alumno.boleta == "2024320678"
+    assert result.alumno.nombre == "Ana López Martínez"
+    assert result.materias == ()
+
+
+def test_failed_source_uses_only_reprobados_and_builds_its_own_student():
     class RejectingInscritoRepository:
         async def get_inscrito(self, boleta):
-            raise AssertionError("The selected student must not be fetched again.")
+            raise AssertionError("The enrolled-student repository must not be called.")
 
     class RecordingReprobadoRepository:
         def __init__(self):
@@ -55,12 +84,15 @@ def test_reprobados_flow_uses_the_selected_student_boleta_without_fetching_again
         async def search_reprobados(self, boleta=None, nombre=None):
             self.boletas.append(boleta)
             return (
-                MateriaReprobada(
-                    "Cálculo diferencial", 20252, boleta, "Ana López Martínez"
+                SimpleNamespace(
+                    materia="Cálculo diferencial",
+                    periodo_reprobada=20252,
+                    boleta=boleta,
+                    nombre="Alumno solo reprobado",
+                    carrera="Ingeniería Química Industrial",
                 ),
             )
 
-    alumno = asyncio.run(DemoAlumnoRepository().get_inscrito("2024320678"))
     reprobados = RecordingReprobadoRepository()
     controller = DictamenController(
         DemoDictamenRepository(),
@@ -70,35 +102,41 @@ def test_reprobados_flow_uses_the_selected_student_boleta_without_fetching_again
     )
 
     result = asyncio.run(
-        controller.find_reprobado_candidate_for_student(alumno, "20271")
+        controller.find_student_candidate("reprobado", "2024999999", "20271")
     )
 
-    assert reprobados.boletas == ["2024320678"]
-    assert result.alumno is alumno
+    assert reprobados.boletas == ["2024999999"]
+    assert result.alumno.boleta == "2024999999"
+    assert result.alumno.nombre == "Alumno solo reprobado"
+    assert result.alumno.carrera == "Ingeniería Química Industrial"
+    assert not hasattr(result.alumno, "creditos_inscritos")
     assert result.total_reprobadas == 1
     assert [item.materia for item in result.materias] == ["Cálculo diferencial"]
 
 
-def test_reprobados_flow_treats_no_failed_subjects_as_a_valid_candidate():
+def test_failed_source_reports_an_empty_page_without_falling_back_to_inscritos():
+    class RejectingInscritoRepository:
+        async def get_inscrito(self, boleta):
+            raise AssertionError("An empty failed-subject page must not fall back.")
+
     class EmptyReprobadoRepository:
         async def search_reprobados(self, boleta=None, nombre=None):
             return ()
 
-    alumno = asyncio.run(DemoAlumnoRepository().get_inscrito("2024320678"))
     controller = DictamenController(
         DemoDictamenRepository(),
-        DemoAlumnoRepository(),
+        RejectingInscritoRepository(),
         DemoPdfGenerator(),
         reprobado_repository=EmptyReprobadoRepository(),
     )
 
-    result = asyncio.run(
-        controller.find_reprobado_candidate_for_student(alumno, "20271")
-    )
-
-    assert result.alumno is alumno
-    assert result.total_reprobadas == 0
-    assert result.materias == ()
+    with pytest.raises(
+        NotFoundError,
+        match="No se encontraron materias reprobadas para la boleta indicada",
+    ):
+        asyncio.run(
+            controller.find_student_candidate("reprobado", "2024999999", "20271")
+        )
 
 
 def test_create_keeps_pdf_context_separate_without_generating_a_document():
@@ -137,8 +175,9 @@ def test_create_keeps_pdf_context_separate_without_generating_a_document():
 def test_real_failed_subjects_remain_in_pdf_context_but_not_api_payload():
     controller = build_controller()
     candidate = asyncio.run(
-        controller.find_reprobado_candidate_for_student(
-            asyncio.run(DemoAlumnoRepository().get_inscrito("2024320678")),
+        controller.find_student_candidate(
+            "reprobado",
+            "2024320678",
             "20271",
         )
     )

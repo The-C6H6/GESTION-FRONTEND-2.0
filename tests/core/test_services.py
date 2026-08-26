@@ -92,7 +92,10 @@ def test_services_clear_tokens_on_logout():
 
 
 def test_production_services_share_login_token_with_inscritos():
+    paths = []
+
     def handler(request: httpx.Request) -> httpx.Response:
+        paths.append(request.url.path)
         if request.url.path == "/api/auth/login":
             return httpx.Response(
                 200,
@@ -118,15 +121,23 @@ def test_production_services_share_login_token_with_inscritos():
     )
     asyncio.run(services.auth_controller.login("directivo", "secreto"))
 
-    alumno = asyncio.run(
-        services.alumno_controller.find_inscrito(" 2022630000 ")
+    candidate = asyncio.run(
+        services.dictamen_controller.find_student_candidate(
+            "inscrito",
+            " 2022630000 ",
+            "20262",
+        )
     )
 
-    assert alumno.nombre == "María Hernández García"
+    assert candidate.alumno.nombre == "María Hernández García"
+    assert paths == ["/api/auth/login", "/api/inscritos/2022630000"]
 
 
 def test_production_services_share_login_token_with_reprobados():
+    paths = []
+
     def handler(request: httpx.Request) -> httpx.Response:
+        paths.append(request.url.path)
         if request.url.path == "/api/auth/login":
             return httpx.Response(
                 200,
@@ -136,9 +147,6 @@ def test_production_services_share_login_token_with_reprobados():
                     "token_type": "bearer",
                 },
             )
-        if request.url.path == "/api/inscritos/2022630000":
-            assert request.headers["Authorization"] == "Bearer shared-access"
-            return httpx.Response(200, json=INSCRITO_RESPONSE)
         assert request.url.path == "/api/reprobados"
         assert request.url.params.get("boleta") == "2022630000"
         assert request.headers["Authorization"] == "Bearer shared-access"
@@ -155,20 +163,19 @@ def test_production_services_share_login_token_with_reprobados():
         transport=httpx.MockTransport(handler),
     )
     asyncio.run(services.auth_controller.login("directivo", "secreto"))
-    alumno = asyncio.run(
-        services.alumno_controller.find_inscrito("2022630000")
-    )
 
     candidate = asyncio.run(
-        services.dictamen_controller.find_reprobado_candidate_for_student(
-            alumno,
+        services.dictamen_controller.find_student_candidate(
+            "reprobado",
+            "2022630000",
             "20262",
         )
     )
 
-    assert candidate.alumno is alumno
+    assert candidate.alumno.nombre == "NOMBRE DEL ALUMNO"
     assert candidate.total_reprobadas == 1
     assert [item.materia for item in candidate.materias] == ["TERMODINAMICA"]
+    assert paths == ["/api/auth/login", "/api/reprobados"]
 
 
 def test_production_services_create_rulings_through_the_api_only():

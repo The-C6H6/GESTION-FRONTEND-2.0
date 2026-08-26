@@ -1,5 +1,4 @@
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
 from datetime import date, datetime
 
 import flet as ft
@@ -32,13 +31,6 @@ class _RequestGate:
         self.active = False
 
 
-@dataclass(frozen=True)
-class _StudentSearchResult:
-    alumno: object
-    materias: tuple
-    total_reprobadas: int
-
-
 async def _run_guarded_request(
     gate: _RequestGate,
     set_busy: Callable[[bool], None],
@@ -56,13 +48,11 @@ async def _run_guarded_request(
 
 
 async def _find_student(services, source: str, query: str, period: str):
-    alumno = await services.alumno_controller.find_inscrito(query)
-    if source == "reprobado":
-        return await services.dictamen_controller.find_reprobado_candidate_for_student(
-            alumno,
-            period,
-        )
-    return _StudentSearchResult(alumno, (), 0)
+    return await services.dictamen_controller.find_student_candidate(
+        source,
+        query,
+        period,
+    )
 
 
 def _redirect_expired_session(context, error: Exception, navigate: Callable) -> bool:
