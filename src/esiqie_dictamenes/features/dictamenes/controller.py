@@ -20,7 +20,7 @@ from .models import (
 )
 from .pdf import PdfGenerator
 from .periodos import eligible_subjects
-from .repository import DictamenRepository
+from .repository import DictamenCreateRepository, DictamenRepository
 
 
 @dataclass(frozen=True)
@@ -28,7 +28,6 @@ class CreatedDictamen:
     dictamen: Dictamen
     api_payload: DictamenCreate
     pdf_request: PdfRequest
-    document: GeneratedDocument
 
 
 @dataclass(frozen=True)
@@ -51,10 +50,12 @@ class DictamenController:
         alumno_repository: AlumnoRepository,
         pdf_generator: PdfGenerator,
         reprobado_repository: ReprobadoRepository | None = None,
+        create_repository: DictamenCreateRepository | None = None,
     ) -> None:
         self._repository = repository
         self._alumno_repository = alumno_repository
         self._reprobado_repository = reprobado_repository or alumno_repository
+        self._create_repository = create_repository or repository
         self._pdf_generator = pdf_generator
 
     async def find_eligible_reprobados(
@@ -141,15 +142,14 @@ class DictamenController:
             anio=reference.year,
             dictaminacion=dictaminacion.strip(),
         )
-        dictamen = await self._repository.create(payload)
+        dictamen = await self._create_repository.create(payload)
         pdf_request = PdfRequest(
             dictamen=dictamen,
             director=director.strip(),
             fecha_sesion=fecha_sesion,
             materias=tuple(materias),
         )
-        document = await self._pdf_generator.generate(pdf_request)
-        return CreatedDictamen(dictamen, payload, pdf_request, document)
+        return CreatedDictamen(dictamen, payload, pdf_request)
 
     async def delete_many(self, claves: Sequence[str]) -> int:
         if not claves:

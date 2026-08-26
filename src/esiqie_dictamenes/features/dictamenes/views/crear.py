@@ -5,7 +5,11 @@ from datetime import date, datetime
 import flet as ft
 
 from esiqie_dictamenes.core.context import use_app_context
-from esiqie_dictamenes.core.errors import to_user_message
+from esiqie_dictamenes.core.errors import (
+    ApiConnectionError,
+    ApiTimeoutError,
+    to_user_message,
+)
 from esiqie_dictamenes.core.routes import RoutePath
 from esiqie_dictamenes.features.dictamenes.pdf import format_session_date
 from esiqie_dictamenes.features.dictamenes.periodos import current_period
@@ -35,7 +39,7 @@ class _StudentSearchResult:
     total_reprobadas: int
 
 
-async def _run_guarded_search(
+async def _run_guarded_request(
     gate: _RequestGate,
     set_busy: Callable[[bool], None],
     operation: Callable[[], Awaitable[None]],
@@ -74,11 +78,28 @@ def _failed_subjects_empty_message(total_reprobadas: int) -> str:
     return "No hay materias que cumplan la regla 19 ≤ diferencia < 29."
 
 
-def _build_create_button(search_busy: bool, on_click: Callable) -> ft.Button:
+def _creation_error_message(error: Exception) -> str:
+    if isinstance(error, (ApiTimeoutError, ApiConnectionError)):
+        return (
+            "No se pudo confirmar si el dictamen fue creado. "
+            "Verifica antes de intentarlo nuevamente."
+        )
+    return to_user_message(error)
+
+
+def _creation_success_message(clave: str) -> str:
+    return f"Dictamen creado correctamente. Clave: {clave}"
+
+
+def _build_create_button(
+    search_busy: bool,
+    create_busy: bool,
+    on_click: Callable,
+) -> ft.Button:
     return ft.Button(
-        "Dictaminar y generar PDF",
+        "Crear dictamen",
         on_click=on_click,
-        disabled=search_busy,
+        disabled=search_busy or create_busy,
         key="dictamen-create",
     )
 
@@ -116,6 +137,7 @@ def _build_session_date_picker(
 def DictamenCreateView() -> ft.Control:
     context = use_app_context()
     search_gate = ft.use_memo(_RequestGate, [])
+    create_gate = ft.use_memo(_RequestGate, [])
     source, set_source = ft.use_state("inscrito")
     query, set_query = ft.use_state("")
     period, set_period = ft.use_state(current_period(date.today()))
@@ -129,6 +151,7 @@ def DictamenCreateView() -> ft.Control:
     message, set_message = ft.use_state("")
     is_error, set_is_error = ft.use_state(False)
     search_busy, set_search_busy = ft.use_state(False)
+    create_busy, set_create_busy = ft.use_state(False)
 
     def select_session_date(event: ft.Event[ft.DatePicker]) -> None:
         if event.control.value is not None:
@@ -152,7 +175,7 @@ def DictamenCreateView() -> ft.Control:
             set_is_error(False)
 
         try:
-            await _run_guarded_search(search_gate, set_search_busy, operation)
+            await _run_guarded_request(search_gate, set_search_busy, operation)
         except Exception as error:
             set_alumno(None)
             set_materias(())
@@ -166,7 +189,7 @@ def DictamenCreateView() -> ft.Control:
             )
 
     async def create() -> None:
-        try:
+        async def operation() -> None:
             if alumno is None:
                 raise ValueError("Primero busca y selecciona un alumno.")
             result = await context.services.dictamen_controller.create(
@@ -177,16 +200,28 @@ def DictamenCreateView() -> ft.Control:
                 reference=date.today(),
                 fecha_sesion=fecha_sesion,
             )
-            set_message(
-                f"Dictamen {result.dictamen.clave} creado. PDF {result.document.filename} simulado."
-            )
+            set_message(_creation_success_message(result.dictamen.clave))
             set_is_error(False)
+
+        try:
+            await _run_guarded_request(
+                create_gate,
+                set_create_busy,
+                operation,
+            )
         except ValueError as error:
             set_message(str(error))
             set_is_error(True)
         except Exception as error:
-            set_message(to_user_message(error))
+            set_message(_creation_error_message(error))
             set_is_error(True)
+            _redirect_expired_session(
+                context,
+                error,
+                ft.context.page.navigate,
+            )
+
+    interaction_busy = search_busy or create_busy
 
     student_card = ft.Container()
     if alumno:
@@ -221,7 +256,7 @@ def DictamenCreateView() -> ft.Control:
                     ft.DropdownOption(key="reprobado", text="Alumno reprobado"),
                 ],
                 on_select=lambda e: set_source(e.control.value),
-                disabled=search_busy,
+                disabled=interaction_busy,
                 key="dictamen-source",
             ),
             ft.Row(
@@ -230,7 +265,7 @@ def DictamenCreateView() -> ft.Control:
                         label="Número de boleta",
                         value=query,
                         on_change=lambda e: set_query(e.control.value),
-                        disabled=search_busy,
+                        disabled=interaction_busy,
                         expand=True,
                         key="dictamen-student-query",
                     ),
@@ -240,13 +275,13 @@ def DictamenCreateView() -> ft.Control:
                         on_change=lambda e: set_period(e.control.value),
                         width=170,
                         visible=source == "reprobado",
-                        disabled=search_busy,
+                        disabled=interaction_busy,
                         key="dictamen-current-period",
                     ),
                     ft.Button(
                         "Buscando..." if search_busy else "Buscar",
                         on_click=search,
-                        disabled=search_busy,
+                        disabled=interaction_busy,
                         key="dictamen-student-search",
                     ),
                 ]
@@ -257,6 +292,7 @@ def DictamenCreateView() -> ft.Control:
                 label="Nombre del director",
                 value=director,
                 on_change=lambda e: set_director(e.control.value),
+                disabled=create_busy,
                 key="dictamen-director",
             ),
             ft.Row(
@@ -272,6 +308,7 @@ def DictamenCreateView() -> ft.Control:
                         "Elegir fecha",
                         icon=ft.Icons.CALENDAR_MONTH,
                         on_click=lambda: set_show_date_picker(True),
+                        disabled=create_busy,
                         key="dictamen-session-date-open",
                     ),
                 ]
@@ -282,10 +319,11 @@ def DictamenCreateView() -> ft.Control:
                 multiline=True,
                 min_lines=4,
                 on_change=lambda e: set_dictaminacion(e.control.value),
+                disabled=create_busy,
                 key="dictamen-text",
             ),
             ft.Row(
-                [_build_create_button(search_busy, create)],
+                [_build_create_button(search_busy, create_busy, create)],
                 alignment=ft.MainAxisAlignment.END,
             ),
         ],

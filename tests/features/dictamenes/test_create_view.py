@@ -6,7 +6,12 @@ import flet as ft
 import pytest
 
 from esiqie_dictamenes.core.context import AppContextValue
-from esiqie_dictamenes.core.errors import AuthorizationError, SessionExpiredError
+from esiqie_dictamenes.core.errors import (
+    ApiConnectionError,
+    ApiTimeoutError,
+    AuthorizationError,
+    SessionExpiredError,
+)
 from esiqie_dictamenes.core.routes import RoutePath
 from esiqie_dictamenes.core.services import build_demo_services
 from esiqie_dictamenes.features.auth.models import Session
@@ -92,10 +97,10 @@ def test_search_guard_rejects_a_second_concurrent_operation():
             await release.wait()
 
         first = asyncio.create_task(
-            crear._run_guarded_search(gate, busy_states.append, operation)
+            crear._run_guarded_request(gate, busy_states.append, operation)
         )
         await started.wait()
-        second_result = await crear._run_guarded_search(
+        second_result = await crear._run_guarded_request(
             gate, busy_states.append, operation
         )
         release.set()
@@ -119,7 +124,7 @@ def test_search_guard_always_restores_loading_after_an_exception():
 
     with pytest.raises(RuntimeError, match="network failed"):
         asyncio.run(
-            crear._run_guarded_search(gate, busy_states.append, failing_operation)
+            crear._run_guarded_request(gate, busy_states.append, failing_operation)
         )
 
     assert busy_states == [True, False]
@@ -188,7 +193,69 @@ def test_non_eligible_failed_subjects_keep_the_period_rule_message():
 def test_create_button_is_disabled_while_a_student_search_is_running():
     button = crear._build_create_button(
         search_busy=True,
+        create_busy=False,
         on_click=lambda: None,
     )
 
     assert button.disabled is True
+
+
+def test_create_button_is_disabled_while_the_post_is_running():
+    button = crear._build_create_button(
+        search_busy=False,
+        create_busy=True,
+        on_click=lambda: None,
+    )
+
+    assert button.disabled is True
+
+
+def test_create_gate_allows_only_one_concurrent_post():
+    async def scenario():
+        gate = crear._RequestGate()
+        started = asyncio.Event()
+        release = asyncio.Event()
+        busy_states = []
+        posts = 0
+
+        async def post():
+            nonlocal posts
+            posts += 1
+            started.set()
+            await release.wait()
+
+        first = asyncio.create_task(
+            crear._run_guarded_request(gate, busy_states.append, post)
+        )
+        await started.wait()
+        second_result = await crear._run_guarded_request(
+            gate,
+            busy_states.append,
+            post,
+        )
+        release.set()
+        first_result = await first
+        return posts, busy_states, first_result, second_result
+
+    posts, busy_states, first_result, second_result = asyncio.run(scenario())
+
+    assert posts == 1
+    assert busy_states == [True, False]
+    assert first_result is True
+    assert second_result is False
+
+
+@pytest.mark.parametrize("error", [ApiTimeoutError(), ApiConnectionError()])
+def test_ambiguous_create_failure_warns_that_the_result_is_unconfirmed(error):
+    message = crear._creation_error_message(error)
+
+    assert message == (
+        "No se pudo confirmar si el dictamen fue creado. "
+        "Verifica antes de intentarlo nuevamente."
+    )
+
+
+def test_creation_success_message_exposes_the_backend_key():
+    message = crear._creation_success_message("CSE-0001-26")
+
+    assert message == "Dictamen creado correctamente. Clave: CSE-0001-26"

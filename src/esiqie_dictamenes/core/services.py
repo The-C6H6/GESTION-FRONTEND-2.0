@@ -14,6 +14,9 @@ from esiqie_dictamenes.infrastructure.demo.dictamen_repository import DemoDictam
 from esiqie_dictamenes.infrastructure.demo.pdf_generator import DemoPdfGenerator
 from esiqie_dictamenes.infrastructure.http.api_client import ApiClient
 from esiqie_dictamenes.infrastructure.http.auth_repository import ApiAuthRepository
+from esiqie_dictamenes.infrastructure.http.dictamen_repository import (
+    ApiDictamenRepository,
+)
 from esiqie_dictamenes.infrastructure.http.inscrito_repository import (
     ApiInscritoRepository,
 )
@@ -80,6 +83,10 @@ def build_services(
         api_client,
         settings.reprobado_path,
     )
+    create_repository = ApiDictamenRepository(
+        api_client,
+        settings.dictamen_create_path,
+    )
     return AppServices(
         auth_controller=AuthController(auth_repository),
         user_controller=UserController(user_repository),
@@ -88,6 +95,7 @@ def build_services(
             demo_alumno_repository,
             pdf_generator,
             reprobado_repository=reprobado_repository,
+            create_repository=create_repository,
         ),
         alumno_controller=AlumnoController(inscrito_repository),
         auth_repository=auth_repository,

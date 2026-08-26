@@ -101,8 +101,16 @@ def test_reprobados_flow_treats_no_failed_subjects_as_a_valid_candidate():
     assert result.materias == ()
 
 
-def test_create_keeps_director_out_of_the_api_payload_and_in_pdf_context():
-    controller = build_controller()
+def test_create_keeps_pdf_context_separate_without_generating_a_document():
+    class RejectingPdfGenerator:
+        async def generate(self, request):
+            raise AssertionError("Creation must not generate a PDF.")
+
+    controller = DictamenController(
+        DemoDictamenRepository(),
+        DemoAlumnoRepository(),
+        RejectingPdfGenerator(),
+    )
     alumno = asyncio.run(DemoAlumnoRepository().get_inscrito("2024320678"))
 
     result = asyncio.run(
@@ -118,12 +126,39 @@ def test_create_keeps_director_out_of_the_api_payload_and_in_pdf_context():
 
     assert result.dictamen.boleta == "2024320678"
     assert result.dictamen.anio == 2026
-    assert result.document.filename == "2024320678_dictamen.pdf"
     assert result.pdf_request.director == "Dr. Dirección Escolar"
     assert result.pdf_request.fecha_sesion == date(2026, 12, 11)
     assert result.api_payload.fecha == date(2026, 8, 24)
     assert not hasattr(result.api_payload, "director")
     assert not hasattr(result.api_payload, "fecha_sesion")
+    assert not hasattr(result, "document")
+
+
+def test_real_failed_subjects_remain_in_pdf_context_but_not_api_payload():
+    controller = build_controller()
+    candidate = asyncio.run(
+        controller.find_reprobado_candidate_for_student(
+            asyncio.run(DemoAlumnoRepository().get_inscrito("2024320678")),
+            "20271",
+        )
+    )
+
+    result = asyncio.run(
+        controller.create(
+            alumno=candidate.alumno,
+            dictaminacion="Artículo 56",
+            director="Dr. Dirección Escolar",
+            materias=candidate.materias,
+            reference=date(2026, 8, 26),
+            fecha_sesion=date(2026, 12, 11),
+        )
+    )
+
+    assert [item.materia for item in result.pdf_request.materias] == [
+        "Cálculo diferencial",
+        "Termodinámica",
+    ]
+    assert not hasattr(result.api_payload, "materias")
 
 
 def test_create_rejects_a_free_text_session_date():

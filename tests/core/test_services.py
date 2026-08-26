@@ -1,14 +1,18 @@
 import asyncio
+from datetime import date
 
 import httpx
+import pytest
 
 from esiqie_dictamenes.core.services import build_demo_services, build_services
 from esiqie_dictamenes.core.settings import ApiSettings
+from esiqie_dictamenes.features.dictamenes.models import DictamenFilter
 from tests.infrastructure.http.test_inscrito_repository import INSCRITO_RESPONSE
 from tests.infrastructure.http.test_reprobado_repository import (
     REPROBADO_ITEM,
     paginated_response,
 )
+from tests.infrastructure.http.test_dictamen_repository import CREATED_RESPONSE
 
 
 def test_demo_services_do_not_share_mutable_repositories_between_sessions():
@@ -165,3 +169,74 @@ def test_production_services_share_login_token_with_reprobados():
     assert candidate.alumno is alumno
     assert candidate.total_reprobadas == 1
     assert [item.materia for item in candidate.materias] == ["TERMODINAMICA"]
+
+
+def test_production_services_create_rulings_through_the_api_only():
+    requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path == "/api/auth/login":
+            return httpx.Response(
+                200,
+                json={
+                    "access_token": "shared-access",
+                    "refresh_token": "shared-refresh",
+                    "token_type": "bearer",
+                },
+            )
+        if request.url.path == "/api/inscritos/2022630000":
+            return httpx.Response(200, json=INSCRITO_RESPONSE)
+        assert request.url.path == "/api/dictaminaciones"
+        assert request.headers["Authorization"] == "Bearer shared-access"
+        return httpx.Response(201, json=CREATED_RESPONSE)
+
+    services = build_services(
+        settings=ApiSettings(
+            "http://api.test",
+            "/api/auth/login",
+            "/api/inscritos/{boleta}",
+            "/api/reprobados",
+            "/api/dictaminaciones",
+        ),
+        transport=httpx.MockTransport(handler),
+    )
+    asyncio.run(services.auth_controller.login("directivo", "secreto"))
+    alumno = asyncio.run(
+        services.alumno_controller.find_inscrito("2022630000")
+    )
+
+    result = asyncio.run(
+        services.dictamen_controller.create(
+            alumno=alumno,
+            dictaminacion="CONTENIDO CONFIDENCIAL DEL DICTAMEN",
+            director="Dr. Dirección Escolar",
+            materias=(),
+            reference=date(2026, 8, 26),
+            fecha_sesion=date(2026, 12, 11),
+        )
+    )
+
+    assert result.dictamen.clave == "CSE-0001-26"
+    assert [request.method for request in requests] == ["POST", "GET", "POST"]
+
+
+def test_production_services_keep_ruling_reads_in_demo_mode():
+    services = build_services(
+        settings=ApiSettings(
+            "http://api.test",
+            "/api/auth/login",
+            "/api/inscritos/{boleta}",
+            "/api/reprobados",
+            "/api/dictaminaciones",
+        ),
+        transport=httpx.MockTransport(
+            lambda request: pytest.fail("Demo reads must not call the API.")
+        ),
+    )
+
+    records = asyncio.run(
+        services.dictamen_controller.search(DictamenFilter(anio=2025))
+    )
+
+    assert records
