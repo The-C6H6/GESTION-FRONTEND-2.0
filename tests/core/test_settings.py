@@ -14,6 +14,7 @@ def test_settings_load_api_base_url_and_login_path():
             "RUTA_GENERAR_DICTAMEN": "/api/dictaminaciones",
             "RUTA_LECTURA_DICTAMINACIONES": "/api/dictaminaciones",
             "RUTA_MODIFICAR_DICTAMEN": "/api/dictaminaciones/{clave}",
+            "RUTA_ELIMINAR": "/api/dictaminaciones/bulk",
         }
     )
 
@@ -24,6 +25,7 @@ def test_settings_load_api_base_url_and_login_path():
     assert settings.dictamen_create_path == "/api/dictaminaciones"
     assert settings.dictamen_search_path == "/api/dictaminaciones"
     assert settings.dictamen_update_path == "/api/dictaminaciones/{clave}"
+    assert settings.dictamen_delete_path == "/api/dictaminaciones/bulk"
     assert settings.timeout_seconds == 10.0
 
 
@@ -38,6 +40,7 @@ def test_settings_prefer_api_base_url_over_legacy_ip_address():
             "RUTA_GENERAR_DICTAMEN": "/dictaminaciones",
             "RUTA_LECTURA_DICTAMINACIONES": "/dictaminaciones",
             "RUTA_MODIFICAR_DICTAMEN": "/dictaminaciones/{clave}",
+            "RUTA_ELIMINAR": "/dictaminaciones/bulk",
         }
     )
 
@@ -54,6 +57,7 @@ def test_settings_accept_legacy_ip_address():
             "RUTA_GENERAR_DICTAMEN": "/dictaminaciones",
             "RUTA_LECTURA_DICTAMINACIONES": "/dictaminaciones",
             "RUTA_MODIFICAR_DICTAMEN": "/dictaminaciones/{clave}",
+            "RUTA_ELIMINAR": "/dictaminaciones/bulk",
         }
     )
 
@@ -70,6 +74,7 @@ def test_settings_accept_legacy_ip_address():
         "dictamen_create_path",
         "dictamen_search_path",
         "dictamen_update_path",
+        "dictamen_delete_path",
     ],
 )
 def test_settings_reject_incomplete_configuration(missing):
@@ -81,6 +86,7 @@ def test_settings_reject_incomplete_configuration(missing):
         "dictamen_create_path": "RUTA_GENERAR_DICTAMEN",
         "dictamen_search_path": "RUTA_LECTURA_DICTAMINACIONES",
         "dictamen_update_path": "RUTA_MODIFICAR_DICTAMEN",
+        "dictamen_delete_path": "RUTA_ELIMINAR",
     }
     values = {
         "API_BASE_URL": "http://api.test",
@@ -90,6 +96,7 @@ def test_settings_reject_incomplete_configuration(missing):
         "RUTA_GENERAR_DICTAMEN": "/dictaminaciones",
         "RUTA_LECTURA_DICTAMINACIONES": "/dictaminaciones",
         "RUTA_MODIFICAR_DICTAMEN": "/dictaminaciones/{clave}",
+        "RUTA_ELIMINAR": "/dictaminaciones/bulk",
     }
     values.pop(keys[missing])
 
@@ -109,6 +116,7 @@ def test_settings_reject_incomplete_configuration(missing):
                 "RUTA_GENERAR_DICTAMEN": "/dictaminaciones",
                 "RUTA_LECTURA_DICTAMINACIONES": "/dictaminaciones",
                 "RUTA_MODIFICAR_DICTAMEN": "/dictaminaciones/{clave}",
+                "RUTA_ELIMINAR": "/dictaminaciones/bulk",
             },
             "URL base",
         ),
@@ -121,6 +129,7 @@ def test_settings_reject_incomplete_configuration(missing):
                 "RUTA_GENERAR_DICTAMEN": "/dictaminaciones",
                 "RUTA_LECTURA_DICTAMINACIONES": "/dictaminaciones",
                 "RUTA_MODIFICAR_DICTAMEN": "/dictaminaciones/{clave}",
+                "RUTA_ELIMINAR": "/dictaminaciones/bulk",
             },
             "ruta de login",
         ),
@@ -133,6 +142,7 @@ def test_settings_reject_incomplete_configuration(missing):
                 "RUTA_GENERAR_DICTAMEN": "/dictaminaciones",
                 "RUTA_LECTURA_DICTAMINACIONES": "/dictaminaciones",
                 "RUTA_MODIFICAR_DICTAMEN": "/dictaminaciones/{clave}",
+                "RUTA_ELIMINAR": "/dictaminaciones/bulk",
             },
             "ruta de inscritos",
         ),
@@ -145,6 +155,7 @@ def test_settings_reject_incomplete_configuration(missing):
                 "RUTA_GENERAR_DICTAMEN": "/dictaminaciones",
                 "RUTA_LECTURA_DICTAMINACIONES": "/dictaminaciones",
                 "RUTA_MODIFICAR_DICTAMEN": "/dictaminaciones/{clave}",
+                "RUTA_ELIMINAR": "/dictaminaciones/bulk",
             },
             "ruta de reprobados",
         ),
@@ -157,6 +168,7 @@ def test_settings_reject_incomplete_configuration(missing):
                 "RUTA_GENERAR_DICTAMEN": "/dictaminaciones",
                 "RUTA_LECTURA_DICTAMINACIONES": "/dictaminaciones",
                 "RUTA_MODIFICAR_DICTAMEN": "/dictaminaciones/{clave}",
+                "RUTA_ELIMINAR": "/dictaminaciones/bulk",
             },
             "ruta de reprobados",
         ),
@@ -169,6 +181,7 @@ def test_settings_reject_incomplete_configuration(missing):
                 "RUTA_GENERAR_DICTAMEN": "/dictaminaciones?draft=true",
                 "RUTA_LECTURA_DICTAMINACIONES": "/dictaminaciones",
                 "RUTA_MODIFICAR_DICTAMEN": "/dictaminaciones/{clave}",
+                "RUTA_ELIMINAR": "/dictaminaciones/bulk",
             },
             "ruta de creación de dictámenes",
         ),
@@ -198,6 +211,7 @@ def test_settings_reject_invalid_ruling_search_path(invalid_path):
         "RUTA_GENERAR_DICTAMEN": "/dictaminaciones",
         "RUTA_LECTURA_DICTAMINACIONES": invalid_path,
         "RUTA_MODIFICAR_DICTAMEN": "/dictaminaciones/{clave}",
+        "RUTA_ELIMINAR": "/dictaminaciones/bulk",
     }
 
     with pytest.raises(ConfigurationError, match="ruta de lectura"):
@@ -225,7 +239,34 @@ def test_settings_reject_invalid_ruling_update_path(invalid_path):
         "RUTA_GENERAR_DICTAMEN": "/dictaminaciones",
         "RUTA_LECTURA_DICTAMINACIONES": "/dictaminaciones",
         "RUTA_MODIFICAR_DICTAMEN": invalid_path,
+        "RUTA_ELIMINAR": "/dictaminaciones/bulk",
     }
 
     with pytest.raises(ConfigurationError, match="ruta de modificaci"):
+        load_api_settings(values)
+
+
+@pytest.mark.parametrize(
+    "invalid_path",
+    [
+        "dictaminaciones/bulk",
+        "https://api.test/dictaminaciones/bulk",
+        "/dictaminaciones/bulk?clave=CSE-0001-26",
+        "/dictaminaciones/bulk#delete",
+        "/dictaminaciones/{clave}",
+    ],
+)
+def test_settings_reject_invalid_ruling_delete_path(invalid_path):
+    values = {
+        "API_BASE_URL": "http://api.test",
+        "RUTA_LOGIN": "/login",
+        "RUTA_VISUALIZAR_INSCRITOS": "/inscritos/{boleta}",
+        "RUTA_REPROBADOS": "/reprobados",
+        "RUTA_GENERAR_DICTAMEN": "/dictaminaciones",
+        "RUTA_LECTURA_DICTAMINACIONES": "/dictaminaciones",
+        "RUTA_MODIFICAR_DICTAMEN": "/dictaminaciones/{clave}",
+        "RUTA_ELIMINAR": invalid_path,
+    }
+
+    with pytest.raises(ConfigurationError, match="ruta de eliminaci"):
         load_api_settings(values)

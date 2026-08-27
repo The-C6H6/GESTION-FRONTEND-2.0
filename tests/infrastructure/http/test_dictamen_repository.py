@@ -74,6 +74,7 @@ def _repository(
     handler,
     *,
     update_path="/custom/dictaminaciones/{clave}",
+    delete_path="/custom/dictaminaciones/bulk",
 ):
     settings = ApiSettings(
         "http://api.test",
@@ -83,6 +84,7 @@ def _repository(
         "/api/dictaminaciones",
         "/api/dictaminaciones",
         update_path,
+        delete_path,
     )
     tokens = AuthTokenStore()
     tokens.replace("access-secret", "refresh-secret")
@@ -97,9 +99,151 @@ def _repository(
             settings.dictamen_create_path,
             settings.dictamen_search_path,
             settings.dictamen_update_path,
+            settings.dictamen_delete_path,
         ),
         tokens,
     )
+
+
+def test_delete_many_uses_configured_path_and_sends_only_unique_keys():
+    requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        assert request.method == "DELETE"
+        assert request.url.path == "/custom/dictaminaciones/bulk"
+        assert request.headers["Authorization"] == "Bearer access-secret"
+        assert json.loads(request.content) == {
+            "claves": ["CSE-0001-26", "CSE-0003-26"]
+        }
+        return httpx.Response(
+            200,
+            json={
+                "message": "Dictaminaciones eliminadas correctamente",
+                "total": 2,
+                "claves": ["CSE-0001-26", "CSE-0003-26"],
+            },
+        )
+
+    repository, _ = _repository(handler)
+
+    total = asyncio.run(
+        repository.delete_many(
+            ("CSE-0001-26", "CSE-0001-26", "CSE-0003-26")
+        )
+    )
+
+    assert total == 2
+    assert len(requests) == 1
+
+
+@pytest.mark.parametrize(
+    "response_json",
+    [
+        [],
+        {"total": 1},
+        {"message": "ok"},
+        {"message": 123, "total": 1},
+        {"message": "ok", "total": True},
+        {"message": "ok", "total": -1},
+        {"message": "ok", "total": 2},
+        {"message": "ok", "total": 1, "claves": "CSE-0001-26"},
+        {"message": "ok", "total": 1, "claves": [123]},
+        {"message": "ok", "total": 1, "claves": ["CSE-OTHER-26"]},
+        {
+            "message": "ok",
+            "total": 1,
+            "claves": ["CSE-0001-26", "CSE-0001-26"],
+        },
+    ],
+)
+def test_delete_many_rejects_an_invalid_response_contract(response_json):
+    repository, _ = _repository(
+        lambda request: httpx.Response(200, json=response_json)
+    )
+
+    with pytest.raises(UnexpectedResponseError):
+        asyncio.run(repository.delete_many(("CSE-0001-26",)))
+
+
+def test_delete_many_accepts_null_deleted_keys_from_the_documented_contract():
+    repository, _ = _repository(
+        lambda request: httpx.Response(
+            200,
+            json={"message": "ok", "total": 1, "claves": None},
+        )
+    )
+
+    assert asyncio.run(repository.delete_many(("CSE-0001-26",))) == 1
+
+
+@pytest.mark.parametrize(
+    ("status_code", "expected_error"),
+    [
+        (400, ValidationError),
+        (401, SessionExpiredError),
+        (403, AuthorizationError),
+        (404, NotFoundError),
+        (422, ValidationError),
+        (500, ServiceUnavailableError),
+    ],
+)
+def test_delete_many_propagates_controlled_http_errors(
+    status_code,
+    expected_error,
+):
+    repository, _ = _repository(
+        lambda request: httpx.Response(status_code, json={"detail": "error"})
+    )
+
+    with pytest.raises(expected_error):
+        asyncio.run(repository.delete_many(("CSE-0001-26",)))
+
+
+@pytest.mark.parametrize(
+    ("transport_error", "expected_error"),
+    [
+        (httpx.ReadTimeout("slow"), ApiTimeoutError),
+        (httpx.ConnectError("offline"), ApiConnectionError),
+    ],
+)
+def test_delete_many_does_not_retry_ambiguous_transport_failures(
+    transport_error,
+    expected_error,
+):
+    attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        transport_error.request = request
+        raise transport_error
+
+    repository, _ = _repository(handler)
+
+    with pytest.raises(expected_error):
+        asyncio.run(repository.delete_many(("CSE-PRIVATE-26",)))
+
+    assert attempts == 1
+
+
+@pytest.mark.parametrize("failure", ["timeout", "invalid_json"])
+def test_delete_many_never_logs_keys_payload_or_credentials(failure, caplog):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if failure == "timeout":
+            raise httpx.ReadTimeout("slow", request=request)
+        return httpx.Response(200, text="not-json")
+
+    repository, _ = _repository(handler)
+
+    with caplog.at_level(logging.WARNING), pytest.raises(
+        (ApiTimeoutError, UnexpectedResponseError)
+    ):
+        asyncio.run(repository.delete_many(("CSE-PRIVATE-26",)))
+
+    assert "CSE-PRIVATE-26" not in caplog.text
+    assert "access-secret" not in caplog.text
+    assert "refresh-secret" not in caplog.text
 
 
 def test_update_uses_configured_path_and_sends_only_dictaminacion():

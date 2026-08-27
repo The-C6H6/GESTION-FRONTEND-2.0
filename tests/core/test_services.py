@@ -44,6 +44,7 @@ def test_production_services_use_api_login_and_store_tokens():
             "/api/dictaminaciones",
             "/api/dictaminaciones",
             "/api/dictaminaciones/{clave}",
+            "/api/dictaminaciones/bulk",
         ),
         transport=httpx.MockTransport(handler),
     )
@@ -69,6 +70,7 @@ def test_production_services_keep_user_registration_in_demo_mode():
             "/api/dictaminaciones",
             "/api/dictaminaciones",
             "/api/dictaminaciones/{clave}",
+            "/api/dictaminaciones/bulk",
         ),
         transport=httpx.MockTransport(reject_network),
     )
@@ -122,6 +124,7 @@ def test_production_services_share_login_token_with_inscritos():
             "/api/dictaminaciones",
             "/api/dictaminaciones",
             "/api/dictaminaciones/{clave}",
+            "/api/dictaminaciones/bulk",
         ),
         transport=httpx.MockTransport(handler),
     )
@@ -167,6 +170,7 @@ def test_production_services_share_login_token_with_reprobados():
             "/api/dictaminaciones",
             "/api/dictaminaciones",
             "/api/dictaminaciones/{clave}",
+            "/api/dictaminaciones/bulk",
         ),
         transport=httpx.MockTransport(handler),
     )
@@ -215,6 +219,7 @@ def test_production_services_create_rulings_through_the_api_only():
             "/api/dictaminaciones",
             "/api/dictaminaciones",
             "/api/dictaminaciones/{clave}",
+            "/api/dictaminaciones/bulk",
         ),
         transport=httpx.MockTransport(handler),
     )
@@ -274,6 +279,7 @@ def test_production_services_search_rulings_through_the_shared_api_client():
             "/api/dictaminaciones",
             "/api/dictaminaciones",
             "/api/dictaminaciones/{clave}",
+            "/api/dictaminaciones/bulk",
         ),
         transport=httpx.MockTransport(handler),
     )
@@ -321,6 +327,7 @@ def test_production_services_update_rulings_through_the_shared_api_client():
             "/api/dictaminaciones",
             "/api/dictaminaciones",
             "/custom/dictaminaciones/{clave}",
+            "/api/dictaminaciones/bulk",
         ),
         transport=httpx.MockTransport(handler),
     )
@@ -343,3 +350,61 @@ def test_production_services_update_rulings_through_the_shared_api_client():
 
     assert updated.dictaminacion == "DICTAMEN ACTUALIZADO"
     assert [request.method for request in requests] == ["POST", "PUT"]
+
+
+def test_production_services_delete_rulings_through_the_shared_api_client():
+    requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path == "/api/auth/login":
+            return httpx.Response(
+                200,
+                json={
+                    "access_token": "shared-access",
+                    "refresh_token": "shared-refresh",
+                    "token_type": "bearer",
+                },
+            )
+        assert request.method == "DELETE"
+        assert request.url.path == "/custom/dictaminaciones/bulk"
+        assert request.headers["Authorization"] == "Bearer shared-access"
+        assert request.content == b'{"claves":["CSE-0001-26"]}'
+        return httpx.Response(
+            200,
+            json={
+                "message": "Dictaminacion eliminada",
+                "total": 1,
+                "claves": ["CSE-0001-26"],
+            },
+        )
+
+    services = build_services(
+        settings=ApiSettings(
+            "http://api.test",
+            "/api/auth/login",
+            "/api/inscritos/{boleta}",
+            "/api/reprobados",
+            "/api/dictaminaciones",
+            "/api/dictaminaciones",
+            "/api/dictaminaciones/{clave}",
+            "/custom/dictaminaciones/bulk",
+        ),
+        transport=httpx.MockTransport(handler),
+    )
+    asyncio.run(services.auth_controller.login("directivo", "secreto"))
+    current = Dictamen(
+        clave="CSE-0001-26",
+        boleta=CREATED_RESPONSE["Boleta"],
+        alumno=CREATED_RESPONSE["Nombre"],
+        fecha=date.fromisoformat(CREATED_RESPONSE["Fecha"]),
+        anio=2026,
+        dictaminacion=CREATED_RESPONSE["Dictaminacion"],
+    )
+
+    total = asyncio.run(
+        services.dictamen_controller.delete_dictamenes((current,))
+    )
+
+    assert total == 1
+    assert [request.method for request in requests] == ["POST", "DELETE"]

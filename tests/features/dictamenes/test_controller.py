@@ -224,10 +224,47 @@ def test_create_rejects_a_free_text_session_date():
 
 
 def test_delete_rejects_an_empty_selection():
-    controller = build_controller()
+    class RejectingDeleteRepository:
+        async def delete_many(self, claves):
+            raise AssertionError("Empty selection must not reach the repository.")
+
+    controller = DictamenController(
+        DemoDictamenRepository(),
+        DemoAlumnoRepository(),
+        DemoPdfGenerator(),
+        delete_repository=RejectingDeleteRepository(),
+    )
 
     with pytest.raises(ValidationError, match="Selecciona"):
-        asyncio.run(controller.delete_many(()))
+        asyncio.run(controller.delete_dictamenes(()))
+
+
+def test_delete_uses_unique_keys_from_selected_domain_entities():
+    first = asyncio.run(DemoDictamenRepository().get("D-00132"))
+    second = asyncio.run(DemoDictamenRepository().get("D-00081"))
+
+    class DeleteRepository:
+        def __init__(self):
+            self.calls = []
+
+        async def delete_many(self, claves):
+            self.calls.append(tuple(claves))
+            return len(claves)
+
+    delete_repository = DeleteRepository()
+    controller = DictamenController(
+        DemoDictamenRepository(),
+        DemoAlumnoRepository(),
+        DemoPdfGenerator(),
+        delete_repository=delete_repository,
+    )
+
+    total = asyncio.run(
+        controller.delete_dictamenes((first, first, second))
+    )
+
+    assert total == 2
+    assert delete_repository.calls == [(first.clave, second.clave)]
 
 
 def test_search_returns_all_rulings_for_the_requested_boleta():

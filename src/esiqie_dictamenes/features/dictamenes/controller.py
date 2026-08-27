@@ -28,6 +28,7 @@ from .pdf import PdfGenerator
 from .periodos import eligible_subjects
 from .repository import (
     DictamenCreateRepository,
+    DictamenDeleteRepository,
     DictamenRepository,
     DictamenSearchRepository,
     DictamenUpdateRepository,
@@ -64,6 +65,7 @@ class DictamenController:
         create_repository: DictamenCreateRepository | None = None,
         search_repository: DictamenSearchRepository | None = None,
         update_repository: DictamenUpdateRepository | None = None,
+        delete_repository: DictamenDeleteRepository | None = None,
     ) -> None:
         self._repository = repository
         self._alumno_repository = alumno_repository
@@ -71,6 +73,7 @@ class DictamenController:
         self._create_repository = create_repository or repository
         self._search_repository = search_repository or repository
         self._update_repository = update_repository or repository
+        self._delete_repository = delete_repository or repository
         self._pdf_generator = pdf_generator
 
     async def find_student_candidate(
@@ -247,7 +250,8 @@ class DictamenController:
         )
         return CreatedDictamen(dictamen, payload, pdf_request)
 
-    async def delete_many(self, claves: Sequence[str]) -> int:
-        if not claves:
+    async def delete_dictamenes(self, dictamenes: Sequence[Dictamen]) -> int:
+        if not dictamenes:
             raise ValidationError("Selecciona al menos un dictamen.")
-        return await self._repository.delete_many(claves)
+        claves = tuple(dict.fromkeys(dictamen.clave for dictamen in dictamenes))
+        return await self._delete_repository.delete_many(claves)

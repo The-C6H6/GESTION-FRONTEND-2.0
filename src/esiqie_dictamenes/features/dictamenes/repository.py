@@ -27,12 +27,18 @@ class DictamenSearchRepository(Protocol):
 class DictamenUpdateRepository(Protocol):
     async def update(self, clave: str, payload: DictamenUpdate) -> Dictamen: ...
 
+class DictamenDeleteRepository(Protocol):
+    async def delete_many(self, claves: Sequence[str]) -> int: ...
 
-class DictamenRepository(DictamenCreateRepository, Protocol):
+
+class DictamenRepository(
+    DictamenCreateRepository,
+    DictamenDeleteRepository,
+    Protocol,
+):
     async def search(self, filters: DictamenFilter) -> Sequence[Dictamen]: ...
 
     async def get(self, clave: str) -> Dictamen: ...
 
     async def update(self, clave: str, payload: DictamenUpdate) -> Dictamen: ...
 
-    async def delete_many(self, claves: Sequence[str]) -> int: ...

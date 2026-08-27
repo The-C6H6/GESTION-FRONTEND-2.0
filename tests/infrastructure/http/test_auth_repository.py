@@ -23,6 +23,7 @@ def _repository(handler):
         "/api/dictaminaciones",
         "/api/dictaminaciones",
         "/api/dictaminaciones/{clave}",
+        "/api/dictaminaciones/bulk",
     )
     tokens = AuthTokenStore()
     client = ApiClient(

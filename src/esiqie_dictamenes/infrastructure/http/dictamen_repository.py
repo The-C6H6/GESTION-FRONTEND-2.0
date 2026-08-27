@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from datetime import date
 from urllib.parse import quote
 
@@ -24,11 +25,13 @@ class ApiDictamenRepository:
         create_path: str,
         search_path: str | None = None,
         update_path: str | None = None,
+        delete_path: str | None = None,
     ) -> None:
         self._client = client
         self._create_path = create_path
         self._search_path = search_path or create_path
         self._update_path = update_path
+        self._delete_path = delete_path
 
     async def create(self, payload: DictamenCreate) -> Dictamen:
         response = await self._client.request_json(
@@ -85,6 +88,49 @@ class ApiDictamenRepository:
         if updated.clave != clave:
             raise UnexpectedResponseError()
         return updated
+
+    async def delete_many(self, claves: Sequence[str]) -> int:
+        if self._delete_path is None:
+            raise UnexpectedResponseError()
+        unique_claves = tuple(dict.fromkeys(claves))
+        if not unique_claves or any(
+            not isinstance(clave, str) or not clave.strip()
+            for clave in unique_claves
+        ):
+            raise UnexpectedResponseError()
+        response = await self._client.request_json(
+            "DELETE",
+            self._delete_path,
+            json={"claves": list(unique_claves)},
+            expected_status=200,
+        )
+        return self._parse_deleted(response, unique_claves)
+
+    @classmethod
+    def _parse_deleted(
+        cls,
+        response: object,
+        requested_claves: tuple[str, ...],
+    ) -> int:
+        if not isinstance(response, dict):
+            raise UnexpectedResponseError()
+        try:
+            cls._string(response, "message")
+            total = cls._integer(response, "total")
+            if total < 0 or total != len(requested_claves):
+                raise ValueError("total")
+            deleted_claves = response.get("claves")
+            if deleted_claves is not None:
+                if (
+                    not isinstance(deleted_claves, list)
+                    or any(not isinstance(clave, str) for clave in deleted_claves)
+                    or len(set(deleted_claves)) != len(deleted_claves)
+                    or set(deleted_claves) != set(requested_claves)
+                ):
+                    raise TypeError("claves")
+            return total
+        except (KeyError, TypeError, ValueError) as error:
+            raise UnexpectedResponseError() from error
 
     @classmethod
     def _is_empty_result(cls, detail: str | None) -> bool:

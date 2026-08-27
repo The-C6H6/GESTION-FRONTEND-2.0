@@ -31,6 +31,7 @@ def _client(handler, tokens=None):
             "/api/dictaminaciones",
             "/api/dictaminaciones",
             "/api/dictaminaciones/{clave}",
+            "/api/dictaminaciones/bulk",
         ),
         tokens or AuthTokenStore(),
         transport=httpx.MockTransport(handler),
