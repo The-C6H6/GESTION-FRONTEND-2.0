@@ -2,7 +2,7 @@
 
 ## Objetivo del esqueleto
 
-La aplicación es un frontend Flet web con navegación declarativa y sesión en memoria. La autenticación, la consulta de alumnos inscritos, la consulta de materias reprobadas, la creación y la búsqueda paginada de dictámenes usan el backend real. Registro, modificación y eliminación de dictámenes, además de la generación PDF, permanecen en modo demostración. Los siguientes adaptadores HTTP podrán sustituir a los demo sin cambiar las vistas.
+La aplicación es un frontend Flet web con navegación declarativa y sesión en memoria. La autenticación, la consulta de alumnos inscritos, la consulta de materias reprobadas, y la creación, búsqueda paginada y modificación de dictámenes usan el backend real. Registro y eliminación de dictámenes, además de la generación PDF, permanecen en modo demostración. Los siguientes adaptadores HTTP podrán sustituir a los demo sin cambiar las vistas.
 
 ## Capas y dependencias
 
@@ -17,7 +17,7 @@ Feature controllers
              ▲
              │
 Infrastructure adapters
-    ├── HTTP: login, enrolled-student, failed-subject, ruling-create and ruling-search APIs
+    ├── HTTP: login, enrolled-student, failed-subject, ruling-create/search/update APIs
     └── Demo: remaining modules and PDF
 ```
 
@@ -43,15 +43,18 @@ La sesión es deliberadamente efímera. `ApiAuthRepository` envía las credencia
 - `DictamenRepository`: búsqueda por boleta o año, consulta por clave, creación, modificación de `dictaminacion` y eliminación por claves; el adaptador demo conserva estas operaciones completas.
 - `DictamenCreateRepository`: contrato enfocado para crear un dictamen; producción usa `ApiDictamenRepository`.
 - `DictamenSearchRepository`: contrato enfocado para consultar una página de dictámenes con un único filtro confirmado; producción reutiliza `ApiDictamenRepository`.
+- `DictamenUpdateRepository`: contrato enfocado para modificar únicamente la dictaminación de un registro existente; producción reutiliza `ApiDictamenRepository`.
 - `InscritoRepository`: consulta de un inscrito por boleta; usa `ApiInscritoRepository`.
 - `ReprobadoRepository`: búsqueda de materias reprobadas; producción usa `ApiReprobadoRepository` y demo conserva el adaptador combinado.
 - `PdfGenerator`: recibe `PdfRequest` y devuelve `GeneratedDocument`.
 
-`core/settings.py` carga `.env` en tiempo de ejecución. Prefiere `API_BASE_URL`, acepta `IP_ADDRESS` por compatibilidad y requiere `RUTA_LOGIN`, `RUTA_VISUALIZAR_INSCRITOS`, `RUTA_REPROBADOS`, `RUTA_GENERAR_DICTAMEN` y `RUTA_LECTURA_DICTAMINACIONES`. La ruta de inscritos debe contener exactamente un marcador `{boleta}`; las rutas de reprobados, creación y lectura de dictámenes deben ser relativas y no pueden incluir host, query, fragmento ni marcadores. Las pruebas inyectan un mapping explícito y nunca dependen de `.env` ni del backend real.
+`core/settings.py` carga `.env` en tiempo de ejecución. Prefiere `API_BASE_URL`, acepta `IP_ADDRESS` por compatibilidad y requiere `RUTA_LOGIN`, `RUTA_VISUALIZAR_INSCRITOS`, `RUTA_REPROBADOS`, `RUTA_GENERAR_DICTAMEN`, `RUTA_LECTURA_DICTAMINACIONES` y `RUTA_MODIFICAR_DICTAMEN`. La ruta de inscritos debe contener exactamente un marcador `{boleta}`; las rutas de reprobados, creación y lectura de dictámenes deben ser relativas y no pueden incluir host, query, fragmento ni marcadores. La ruta de modificación debe ser relativa y contener exactamente un marcador `{clave}`. Las pruebas inyectan un mapping explícito y nunca dependen de `.env` ni del backend real.
 
-`ApiClient` centraliza URL base, query parameters, timeout, JSON, headers, Bearer Token, estado esperado y traducción de errores. `ApiInscritoRepository` codifica la boleta en la ruta y convierte la respuesta completa de la API al modelo `Inscrito`. `ApiReprobadoRepository` envía la boleta únicamente como `?boleta=...`, valida la página completa (`total`, `skip`, `limit`, `items`) y valida cada elemento del transporte antes de mapear solo materia, periodo, boleta y nombre al dominio. `ApiDictamenRepository` conserva el `POST` de creación y añade `GET /api/dictaminaciones` con un único filtro `boleta` o `anio`, `skip` y `limit=100`; valida la página y cada dictamen antes de mapearlos al dominio. Las vistas reciben errores de aplicación con mensajes comprensibles; no construyen requests ni muestran códigos HTTP.
+`ApiClient` centraliza URL base, query parameters, timeout, JSON, headers, Bearer Token, estado esperado y traducción de errores. `ApiInscritoRepository` codifica la boleta en la ruta y convierte la respuesta completa de la API al modelo `Inscrito`. `ApiReprobadoRepository` envía la boleta únicamente como `?boleta=...`, valida la página completa (`total`, `skip`, `limit`, `items`) y valida cada elemento del transporte antes de mapear solo materia, periodo, boleta y nombre al dominio. `ApiDictamenRepository` conserva el `POST` de creación, consulta `GET /api/dictaminaciones` con un único filtro `boleta` o `anio`, `skip` y `limit=100`, y modifica mediante un único `PUT /api/dictaminaciones/{clave}` sin reintentos. El `PUT` envía exactamente `{"Dictaminacion": "..."}` y valida la respuesta completa antes de mapearla al dominio. Las vistas reciben errores de aplicación con mensajes comprensibles; no construyen requests ni muestran códigos HTTP.
 
 La vista de búsqueda conserva por separado los filtros editables y el filtro confirmado. Una nueva búsqueda siempre solicita la página 1 y reemplaza el resultado anterior; `Anterior` y `Siguiente` reutilizan el filtro confirmado sin acumular filas. Si una navegación falla, se mantiene la última página correcta. El guard retenido evita requests concurrentes y el loading bloquea criterios, consulta, paginación y acciones visibles. Solo los detalles conocidos de ausencia de dictámenes en un `400` se traducen a una página vacía neutral; otros `400` mantienen el error de validación.
+
+La modificación forma parte de la misma vista paginada. El usuario marca filas, pero debe confirmar exactamente una para abrir el editor. La clave, boleta, alumno, fecha y año se presentan como texto de solo lectura; el único campo editable es `Dictaminación`. Búsqueda y guardado comparten el mismo guard. Tras un `PUT` correcto se sustituye únicamente el objeto de la página actual, sin cambiar filtro, página, rango ni filas no relacionadas. Cancelar, enviar texto vacío o conservar el valor normalizado no genera un request. No existe actualización optimista ni reintento automático ante un resultado ambiguo.
 
 ## Datos de API y datos de PDF
 
@@ -78,6 +81,6 @@ El dropdown determina la fuente de forma explícita en `DictamenController`: `Al
 
 ## Sustitución futura de adaptadores
 
-La composición ocurre en `core/services.py`. `build_services()` comparte un `ApiClient` y un `AuthTokenStore` entre `ApiAuthRepository`, `ApiInscritoRepository`, `ApiReprobadoRepository` y `ApiDictamenRepository`. El controlador conserva `DemoAlumnoRepository` y `DemoDictamenRepository` para compatibilidad y para modificación y eliminación simuladas, pero recibe por separado los repositorios HTTP enfocados de reprobados, creación y búsqueda. `build_demo_services()` continúa disponible para pruebas aisladas.
+La composición ocurre en `core/services.py`. `build_services()` comparte un `ApiClient` y un `AuthTokenStore` entre `ApiAuthRepository`, `ApiInscritoRepository`, `ApiReprobadoRepository` y `ApiDictamenRepository`. El controlador conserva `DemoAlumnoRepository` y `DemoDictamenRepository` para compatibilidad y eliminación simulada, pero recibe por separado los repositorios HTTP enfocados de reprobados, creación, búsqueda y modificación. `build_demo_services()` continúa disponible para pruebas aisladas.
 
-La modificación y eliminación reales de dictámenes, el registro de usuarios y la generación de PDF continúan fuera del alcance actual. El adaptador PDF futuro deberá basarse en las referencias de `referencias/` y consumir el `PdfRequest` ya separado del payload HTTP.
+La eliminación real de dictámenes, el registro de usuarios y la generación de PDF continúan fuera del alcance actual. El adaptador PDF futuro deberá basarse en las referencias de `referencias/` y consumir el `PdfRequest` ya separado del payload HTTP.
