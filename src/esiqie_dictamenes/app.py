@@ -8,7 +8,6 @@ from esiqie_dictamenes.features.auth.view import LoginView
 from esiqie_dictamenes.features.dashboard.view import DashboardView
 from esiqie_dictamenes.features.dictamenes.views.buscar import DictamenSearchView
 from esiqie_dictamenes.features.dictamenes.views.crear import DictamenCreateView
-from esiqie_dictamenes.features.dictamenes.views.eliminar import DictamenDeleteView
 from esiqie_dictamenes.features.usuarios.view import CreateUserView
 from esiqie_dictamenes.shared.components.app_shell import AppShell
 
@@ -65,7 +64,7 @@ def _app_router() -> ft.Control:
                         children=[
                             ft.Route(index=True, component=DictamenSearchView),
                             ft.Route(path="nuevo", component=DictamenCreateView),
-                            ft.Route(path="eliminar", component=DictamenDeleteView),
+                            ft.Route(path="eliminar", component=DictamenSearchView),
                         ],
                     ),
                     ft.Route(path="inscritos", component=InscritoSearchView),

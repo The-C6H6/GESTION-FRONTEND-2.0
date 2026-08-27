@@ -20,6 +20,15 @@ from esiqie_dictamenes.features.dictamenes.views.crear import (
     _RequestGate,
     _run_guarded_request,
 )
+from esiqie_dictamenes.features.dictamenes.views.eliminar import (
+    _build_confirmation_dialog,
+    _delete_error_message,
+    _delete_success_message,
+    _load_delete,
+    _refresh_error_message,
+    _reload_after_delete,
+    _selected_records,
+)
 from esiqie_dictamenes.features.dictamenes.views.modificar import _build_edit_form
 from esiqie_dictamenes.shared.components.feedback import feedback
 from esiqie_dictamenes.shared.components.page_header import page_header
@@ -255,8 +264,15 @@ def _build_selection_actions(
     busy: bool,
     has_results: bool,
     editing: bool,
+    selected_count: int = 0,
     on_edit: Callable,
+    on_delete: Callable | None = None,
 ) -> ft.Row:
+    delete_label = "Eliminar seleccionados"
+    if selected_count == 1:
+        delete_label = "Eliminar seleccionado"
+    elif selected_count > 1:
+        delete_label = f"Eliminar {selected_count} seleccionados"
     return ft.Row(
         [
             ft.Button(
@@ -264,7 +280,13 @@ def _build_selection_actions(
                 on_click=on_edit,
                 disabled=busy or not has_results or editing,
                 key="dictamen-edit-selected",
-            )
+            ),
+            ft.Button(
+                delete_label,
+                on_click=on_delete,
+                disabled=busy or not has_results or editing,
+                key="dictamen-delete-selected",
+            ),
         ],
         alignment=ft.MainAxisAlignment.END,
     )
@@ -280,6 +302,7 @@ def DictamenSearchView() -> ft.Control:
     current_page, set_current_page = ft.use_state(1)
     result, set_result = ft.use_state(None)
     selected_keys, set_selected_keys = ft.use_state(frozenset())
+    pending_delete, set_pending_delete = ft.use_state(())
     editing_record, set_editing_record = ft.use_state(None)
     edit_value, set_edit_value = ft.use_state("")
     busy, set_busy = ft.use_state(False)
@@ -288,6 +311,7 @@ def DictamenSearchView() -> ft.Control:
 
     def clear_selection() -> None:
         set_selected_keys(frozenset())
+        set_pending_delete(())
         set_editing_record(None)
         set_edit_value("")
 
@@ -370,6 +394,17 @@ def DictamenSearchView() -> ft.Control:
         set_message("")
         set_has_error(False)
 
+    def open_delete_confirmation() -> None:
+        try:
+            selected = _selected_records(records, selected_keys)
+        except (ValidationError, NotFoundError) as error:
+            set_message(to_user_message(error))
+            set_has_error(True)
+            return
+        set_pending_delete(selected)
+        set_message("")
+        set_has_error(False)
+
     def commit_update(updated: Dictamen) -> None:
         if result is None:
             raise NotFoundError()
@@ -405,6 +440,78 @@ def DictamenSearchView() -> ft.Control:
                 set_has_error(True)
 
         await _run_guarded_request(gate, set_busy, operation)
+
+    async def confirm_delete() -> None:
+        if (
+            not pending_delete
+            or result is None
+            or committed_filter is None
+        ):
+            return
+        selected = pending_delete
+        current_result = result
+        filters = committed_filter
+        page = current_page
+
+        async def operation() -> None:
+            try:
+                deleted = await _load_delete(
+                    context.services.dictamen_controller,
+                    selected,
+                )
+            except Exception as error:
+                set_pending_delete(())
+                set_message(
+                    _delete_error_message(
+                        context,
+                        error,
+                        ft.context.page.navigate,
+                        clear_selection,
+                    )
+                )
+                set_has_error(True)
+                return
+
+            clear_selection()
+            set_result(None)
+            try:
+                target_page, loaded = await _reload_after_delete(
+                    context.services.dictamen_controller,
+                    filters,
+                    current_page=page,
+                    total_before=current_result.total,
+                    deleted=deleted,
+                    limit=current_result.limit,
+                )
+            except Exception as error:
+                set_message(
+                    _refresh_error_message(
+                        context,
+                        error,
+                        ft.context.page.navigate,
+                        deleted=deleted,
+                    )
+                )
+                set_has_error(True)
+                return
+
+            set_committed_filter(filters)
+            set_current_page(target_page)
+            set_result(loaded)
+            set_message(_delete_success_message(deleted))
+            set_has_error(False)
+
+        await _run_guarded_request(gate, set_busy, operation)
+
+    delete_dialog = None
+    if pending_delete:
+        delete_dialog = _build_confirmation_dialog(
+            pending_delete,
+            busy=busy,
+            on_cancel=lambda: set_pending_delete(()),
+            on_confirm=confirm_delete,
+        )
+    ft.use_dialog(delete_dialog)
 
     pagination = ft.Container()
     records = ()
@@ -481,7 +588,9 @@ def DictamenSearchView() -> ft.Control:
                 busy=busy,
                 has_results=bool(records),
                 editing=editing_record is not None,
+                selected_count=len(selected_keys),
                 on_edit=open_editor,
+                on_delete=open_delete_confirmation,
             ),
             edit_form,
             pagination,
