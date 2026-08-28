@@ -15,6 +15,7 @@ The baseline for this phase is commit `3db2d71` with 349 passing tests. The impl
 - Coalesce concurrent refresh attempts when several requests fail with the same access token.
 - Clear the complete session when refresh is invalid or the retried request is still unauthorized.
 - Give non-administrators the existing queries while preventing every administrative action exposed by the frontend.
+- Remove demo authentication, demo sessions, and the `is_demo` authentication flag.
 - Preserve backend authorization as the final authority.
 
 ## Non-goals
@@ -22,7 +23,7 @@ The baseline for this phase is commit `3db2d71` with 349 passing tests. The impl
 - Decoding JWTs in the frontend.
 - Persisting sessions across application restarts.
 - Implementing backend endpoints, database changes, or token revocation.
-- Converting demo user registration or PDF generation to real API adapters.
+- Converting demo user registration, academic data, rulings, or PDF generation to real adapters beyond the integrations already completed.
 - Redesigning existing screens or replacing HTTPX/Flet patterns.
 - Retrying timeouts, connection failures, server errors, or non-authentication failures.
 
@@ -32,8 +33,7 @@ The existing token-only store will evolve into `AuthSessionStore`. It owns one s
 
 - `access_token`;
 - `refresh_token`;
-- `authenticated_user`;
-- `is_demo`.
+- `authenticated_user`.
 
 `AuthenticatedUser` is an immutable typed model containing `id`, `username`, `is_active`, and `is_admin`. `Session.current_user` exposes the same authenticated user; it does not copy the role. The session and store representations must not reveal either token.
 
@@ -46,7 +46,13 @@ The store supports four explicit transitions:
 3. `rotate(access_token, refresh_token)` atomically replaces both tokens and discards the previous pair.
 4. `clear()` removes both tokens and the authenticated user together.
 
-The demo adapter creates a complete administrator session without API tokens. It follows the same role contract while remaining clearly marked as demo.
+There is no demo or anonymous authenticated session and no `is_demo` property. The application establishes identity only through the real login and `/auth/me` flow. Unit tests construct explicit typed session state or fakes without adding a production authentication fallback.
+
+## Demo authentication removal
+
+The existing `DemoAuthRepository` combines two unrelated responsibilities: demo login and demo user registration. It will be removed. The still-in-scope demo registration behavior moves to a focused `DemoUserRepository` that implements only `UserRepository`; it cannot authenticate or create a session.
+
+`build_demo_services()` currently creates a fictitious authenticated path and will be removed from production composition. Tests that need non-network collaborators will use test-owned factories and fakes. Demo repositories for academic data, rulings, user registration, and PDF remain only where they are explicitly outside this phase. No API failure falls back to any demo identity.
 
 ## Runtime configuration
 
@@ -62,7 +68,7 @@ RUTA_AUTENTICACION=/api/auth/me
 RUTA_REFRESH=/api/auth/refresh
 ```
 
-Both values must be relative paths beginning with `/` and must reject hosts, query strings, fragments, and template markers. The obsolete `RUTA_REFRESH_TOKEN` example is replaced to avoid two names for the same endpoint. Repositories, views, and handlers never hardcode either route. Tests inject `ApiSettings` and never depend on `.env`.
+Both values must be relative paths beginning with `/` and must reject hosts, query strings, fragments, and template markers. The obsolete `RUTA_REFRESH_TOKEN` example is replaced to avoid two names for the same endpoint. The unused `ADMIN_USERNAME` and `ADMIN_PASSWORD` examples are removed because credentials and usernames never define frontend authorization. Repositories, views, and handlers never hardcode either route. Tests inject `ApiSettings` and never depend on `.env`.
 
 ## Login and identity flow
 
@@ -117,7 +123,7 @@ Logs continue to omit request paths, parameters, payloads, response bodies, and 
 
 ## Authorization policy
 
-The shared session store exposes an administrator guard that requires an active authenticated user with `is_admin=True`. `UserController` and `DictamenController` receive this guard as a dependency from `build_services()` and `build_demo_services()`.
+The shared session store exposes an administrator guard that requires an active authenticated user with `is_admin=True`. `UserController` and `DictamenController` receive this guard as a dependency from `build_services()`. Unit tests inject explicit guards or test-owned stores.
 
 The guard protects:
 
@@ -128,7 +134,7 @@ The guard protects:
 
 Read operations for enrolled students, failed subjects, and rulings require only an active session. Login and refresh are authentication operations and are not subject to the administrator guard.
 
-This controller-level protection ensures that a callback invoked directly cannot reach either an HTTP mutation or the demo user repository. View handlers also check the role before changing local mutation state, opening destructive dialogs, or delegating. A denied operation raises the existing `AuthorizationError`; it does not generate `POST`, `PUT`, `PATCH`, or `DELETE` requests.
+This controller-level protection ensures that a callback invoked directly cannot reach either an HTTP mutation or the demo user-registration repository. View handlers also check the role before changing local mutation state, opening destructive dialogs, or delegating. A denied operation raises the existing `AuthorizationError`; it does not generate `POST`, `PUT`, `PATCH`, or `DELETE` requests.
 
 Backend `403` responses remain authoritative, preserve the session, and use the existing controlled message.
 
@@ -136,7 +142,7 @@ Backend `403` responses remain authoritative, preserve the session, and use the 
 
 ### Administrator
 
-Administrators keep every existing navigation item and action: student queries, failed-subject queries, ruling search/create/update/delete, and demo user creation.
+Administrators keep every existing navigation item and action: student queries, failed-subject queries, ruling search/create/update/delete, and the existing demo-backed user creation.
 
 ### Non-administrator
 
@@ -161,7 +167,8 @@ Every role decision reads `session.current_user.is_admin`; no username rule, dec
 - `features/auth/models.py`, the session store, and `core/context.py` for centralized session state.
 - `infrastructure/http/auth_repository.py` for login plus `/auth/me`.
 - `infrastructure/http/api_client.py` for refresh, rotation, single-flight coordination, and one retry.
-- `core/services.py` for one shared session and injected administrator guards.
+- `core/services.py` for one real shared session, injected administrator guards, and removal of demo authentication composition.
+- Replace `infrastructure/demo/auth_repository.py` with a registration-only `infrastructure/demo/user_repository.py`; test-owned factories replace `build_demo_services()` where needed.
 - `app.py`, `core/routes.py`, `app_shell.py`, dashboard, student, ruling, and user views for role-aware navigation and protected handlers.
 - `UserController` and `DictamenController` for mutation guards.
 
@@ -178,7 +185,8 @@ Implementation follows red-green-refactor. Each production behavior begins with 
 - establish admin and normal sessions from typed users;
 - rotate both tokens and discard the previous pair;
 - clear tokens and user together;
-- keep representations free of secrets.
+- keep representations free of secrets;
+- assert that `Session` and `AuthSessionStore` have no `is_demo` state.
 
 ### Login and `/auth/me`
 
@@ -245,3 +253,4 @@ Each implementation commit is created only after the relevant focused tests and 
 - Normal users cannot cause ruling or user mutations through routes, controls, handlers, or controllers.
 - Administrators retain all existing operations.
 - No JWT decoding, hardcoded role, refresh loop, stale refresh token, optimistic mutation, new dependency, `.env` change, or push is introduced.
+- No demo login, demo session, authentication fallback, or `is_demo` authentication state remains.
