@@ -1,6 +1,6 @@
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
@@ -10,16 +10,16 @@ from esiqie_dictamenes.core.errors import ConfigurationError
 
 @dataclass(frozen=True)
 class ApiSettings:
-    base_url: str
-    login_path: str
-    auth_me_path: str
-    refresh_path: str
-    inscrito_path: str
-    reprobado_path: str
-    dictamen_create_path: str
-    dictamen_search_path: str
-    dictamen_update_path: str
-    dictamen_delete_path: str
+    base_url: str = field(repr=False)
+    login_path: str = field(repr=False)
+    auth_me_path: str = field(repr=False)
+    refresh_path: str = field(repr=False)
+    inscrito_path: str = field(repr=False)
+    reprobado_path: str = field(repr=False)
+    dictamen_create_path: str = field(repr=False)
+    dictamen_search_path: str = field(repr=False)
+    dictamen_update_path: str = field(repr=False)
+    dictamen_delete_path: str = field(repr=False)
     timeout_seconds: float = 10.0
 
 

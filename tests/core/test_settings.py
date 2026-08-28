@@ -1,7 +1,7 @@
 import pytest
 
 from esiqie_dictamenes.core.errors import ConfigurationError
-from esiqie_dictamenes.core.settings import load_api_settings
+from esiqie_dictamenes.core.settings import ApiSettings, load_api_settings
 
 
 def valid_environment():
@@ -17,6 +17,35 @@ def valid_environment():
         "RUTA_MODIFICAR_DICTAMEN": "/api/dictaminaciones/{clave}",
         "RUTA_ELIMINAR": "/api/dictaminaciones/bulk",
     }
+
+
+def test_settings_repr_excludes_api_url_and_paths():
+    settings = ApiSettings(
+        base_url="https://private-api.test",
+        login_path="/private/login",
+        auth_me_path="/private/me",
+        refresh_path="/private/refresh",
+        inscrito_path="/private/inscritos/{boleta}",
+        reprobado_path="/private/reprobados",
+        dictamen_create_path="/private/dictaminaciones",
+        dictamen_search_path="/private/dictaminaciones/search",
+        dictamen_update_path="/private/dictaminaciones/{clave}",
+        dictamen_delete_path="/private/dictaminaciones/bulk",
+    )
+
+    settings_repr = repr(settings)
+
+    assert "https://private-api.test" not in settings_repr
+    assert "/private/login" not in settings_repr
+    assert "/private/me" not in settings_repr
+    assert "/private/refresh" not in settings_repr
+    assert "/private/inscritos/{boleta}" not in settings_repr
+    assert "/private/reprobados" not in settings_repr
+    assert "/private/dictaminaciones" not in settings_repr
+    assert "/private/dictaminaciones/search" not in settings_repr
+    assert "/private/dictaminaciones/{clave}" not in settings_repr
+    assert "/private/dictaminaciones/bulk" not in settings_repr
+    assert "timeout_seconds=10.0" in settings_repr
 
 
 def test_settings_load_api_base_url_and_login_path():
