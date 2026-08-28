@@ -12,6 +12,8 @@ from esiqie_dictamenes.core.errors import ConfigurationError
 class ApiSettings:
     base_url: str
     login_path: str
+    auth_me_path: str
+    refresh_path: str
     inscrito_path: str
     reprobado_path: str
     dictamen_create_path: str
@@ -28,6 +30,8 @@ def load_api_settings(environ: Mapping[str, str] | None = None) -> ApiSettings:
 
     base_url = (environ.get("API_BASE_URL") or environ.get("IP_ADDRESS") or "").strip()
     login_path = (environ.get("RUTA_LOGIN") or "").strip()
+    auth_me_path = (environ.get("RUTA_AUTENTICACION") or "").strip()
+    refresh_path = (environ.get("RUTA_REFRESH") or "").strip()
     inscrito_path = (environ.get("RUTA_VISUALIZAR_INSCRITOS") or "").strip()
     reprobado_path = (environ.get("RUTA_REPROBADOS") or "").strip()
     dictamen_create_path = (environ.get("RUTA_GENERAR_DICTAMEN") or "").strip()
@@ -41,6 +45,8 @@ def load_api_settings(environ: Mapping[str, str] | None = None) -> ApiSettings:
     if (
         not base_url
         or not login_path
+        or not auth_me_path
+        or not refresh_path
         or not inscrito_path
         or not reprobado_path
         or not dictamen_create_path
@@ -57,6 +63,14 @@ def load_api_settings(environ: Mapping[str, str] | None = None) -> ApiSettings:
         raise ConfigurationError("La URL base de la API no es válida.")
     if not login_path.startswith("/") or urlsplit(login_path).netloc:
         raise ConfigurationError("La ruta de login de la API no es válida.")
+    if not _is_static_api_path(auth_me_path):
+        raise ConfigurationError(
+            "La ruta de autenticación de la API no es válida."
+        )
+    if not _is_static_api_path(refresh_path):
+        raise ConfigurationError(
+            "La ruta de renovación de la API no es válida."
+        )
     if (
         not inscrito_path.startswith("/")
         or urlsplit(inscrito_path).netloc
@@ -126,10 +140,24 @@ def load_api_settings(environ: Mapping[str, str] | None = None) -> ApiSettings:
     return ApiSettings(
         base_url=base_url.rstrip("/"),
         login_path=login_path,
+        auth_me_path=auth_me_path,
+        refresh_path=refresh_path,
         inscrito_path=inscrito_path,
         reprobado_path=reprobado_path,
         dictamen_create_path=dictamen_create_path,
         dictamen_search_path=dictamen_search_path,
         dictamen_update_path=dictamen_update_path,
         dictamen_delete_path=dictamen_delete_path,
+    )
+
+
+def _is_static_api_path(path: str) -> bool:
+    parsed = urlsplit(path)
+    return (
+        path.startswith("/")
+        and not parsed.netloc
+        and not parsed.query
+        and not parsed.fragment
+        and "{" not in path
+        and "}" not in path
     )

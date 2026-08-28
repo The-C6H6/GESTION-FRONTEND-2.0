@@ -8,23 +8,14 @@ from esiqie_dictamenes.core.errors import (
     AuthenticationError,
     UnexpectedResponseError,
 )
-from esiqie_dictamenes.core.settings import ApiSettings
 from esiqie_dictamenes.infrastructure.http.api_client import ApiClient
 from esiqie_dictamenes.infrastructure.http.auth_repository import ApiAuthRepository
 from esiqie_dictamenes.infrastructure.http.token_store import AuthTokenStore
+from tests.helpers import api_settings
 
 
 def _repository(handler):
-    settings = ApiSettings(
-        "http://api.test",
-        "/api/auth/login",
-        "/api/inscritos/{boleta}",
-        "/api/reprobados",
-        "/api/dictaminaciones",
-        "/api/dictaminaciones",
-        "/api/dictaminaciones/{clave}",
-        "/api/dictaminaciones/bulk",
-    )
+    settings = api_settings()
     tokens = AuthTokenStore()
     client = ApiClient(
         settings,

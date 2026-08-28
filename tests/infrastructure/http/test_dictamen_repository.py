@@ -16,7 +16,6 @@ from esiqie_dictamenes.core.errors import (
     UnexpectedResponseError,
     ValidationError,
 )
-from esiqie_dictamenes.core.settings import ApiSettings
 from esiqie_dictamenes.features.dictamenes.models import (
     DictamenCreate,
     DictamenFilter,
@@ -27,6 +26,7 @@ from esiqie_dictamenes.infrastructure.http.dictamen_repository import (
     ApiDictamenRepository,
 )
 from esiqie_dictamenes.infrastructure.http.token_store import AuthTokenStore
+from tests.helpers import api_settings
 
 
 CREATE_PAYLOAD = DictamenCreate(
@@ -76,15 +76,9 @@ def _repository(
     update_path="/custom/dictaminaciones/{clave}",
     delete_path="/custom/dictaminaciones/bulk",
 ):
-    settings = ApiSettings(
-        "http://api.test",
-        "/api/auth/login",
-        "/api/inscritos/{boleta}",
-        "/api/reprobados",
-        "/api/dictaminaciones",
-        "/api/dictaminaciones",
-        update_path,
-        delete_path,
+    settings = api_settings(
+        dictamen_update_path=update_path,
+        dictamen_delete_path=delete_path,
     )
     tokens = AuthTokenStore()
     tokens.replace("access-secret", "refresh-secret")

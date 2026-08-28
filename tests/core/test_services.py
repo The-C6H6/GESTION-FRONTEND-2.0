@@ -5,8 +5,8 @@ import httpx
 import pytest
 
 from esiqie_dictamenes.core.services import build_demo_services, build_services
-from esiqie_dictamenes.core.settings import ApiSettings
 from esiqie_dictamenes.features.dictamenes.models import Dictamen, DictamenFilter
+from tests.helpers import api_settings
 from tests.infrastructure.http.test_inscrito_repository import INSCRITO_RESPONSE
 from tests.infrastructure.http.test_reprobado_repository import (
     REPROBADO_ITEM,
@@ -36,16 +36,7 @@ def test_production_services_use_api_login_and_store_tokens():
         )
 
     services = build_services(
-        settings=ApiSettings(
-            "http://api.test",
-            "/api/auth/login",
-            "/api/inscritos/{boleta}",
-            "/api/reprobados",
-            "/api/dictaminaciones",
-            "/api/dictaminaciones",
-            "/api/dictaminaciones/{clave}",
-            "/api/dictaminaciones/bulk",
-        ),
+        settings=api_settings(),
         transport=httpx.MockTransport(handler),
     )
 
@@ -62,16 +53,7 @@ def test_production_services_keep_user_registration_in_demo_mode():
         raise AssertionError("User registration must not call the API yet.")
 
     services = build_services(
-        settings=ApiSettings(
-            "http://api.test",
-            "/api/auth/login",
-            "/api/inscritos/{boleta}",
-            "/api/reprobados",
-            "/api/dictaminaciones",
-            "/api/dictaminaciones",
-            "/api/dictaminaciones/{clave}",
-            "/api/dictaminaciones/bulk",
-        ),
+        settings=api_settings(),
         transport=httpx.MockTransport(reject_network),
     )
 
@@ -116,16 +98,7 @@ def test_production_services_share_login_token_with_inscritos():
         return httpx.Response(200, json=INSCRITO_RESPONSE)
 
     services = build_services(
-        settings=ApiSettings(
-            "http://api.test",
-            "/api/auth/login",
-            "/api/inscritos/{boleta}",
-            "/api/reprobados",
-            "/api/dictaminaciones",
-            "/api/dictaminaciones",
-            "/api/dictaminaciones/{clave}",
-            "/api/dictaminaciones/bulk",
-        ),
+        settings=api_settings(),
         transport=httpx.MockTransport(handler),
     )
     asyncio.run(services.auth_controller.login("directivo", "secreto"))
@@ -162,16 +135,7 @@ def test_production_services_share_login_token_with_reprobados():
         return httpx.Response(200, json=paginated_response(REPROBADO_ITEM))
 
     services = build_services(
-        settings=ApiSettings(
-            "http://api.test",
-            "/api/auth/login",
-            "/api/inscritos/{boleta}",
-            "/api/reprobados",
-            "/api/dictaminaciones",
-            "/api/dictaminaciones",
-            "/api/dictaminaciones/{clave}",
-            "/api/dictaminaciones/bulk",
-        ),
+        settings=api_settings(),
         transport=httpx.MockTransport(handler),
     )
     asyncio.run(services.auth_controller.login("directivo", "secreto"))
@@ -211,16 +175,7 @@ def test_production_services_create_rulings_through_the_api_only():
         return httpx.Response(201, json=CREATED_RESPONSE)
 
     services = build_services(
-        settings=ApiSettings(
-            "http://api.test",
-            "/api/auth/login",
-            "/api/inscritos/{boleta}",
-            "/api/reprobados",
-            "/api/dictaminaciones",
-            "/api/dictaminaciones",
-            "/api/dictaminaciones/{clave}",
-            "/api/dictaminaciones/bulk",
-        ),
+        settings=api_settings(),
         transport=httpx.MockTransport(handler),
     )
     asyncio.run(services.auth_controller.login("directivo", "secreto"))
@@ -271,16 +226,7 @@ def test_production_services_search_rulings_through_the_shared_api_client():
         )
 
     services = build_services(
-        settings=ApiSettings(
-            "http://api.test",
-            "/api/auth/login",
-            "/api/inscritos/{boleta}",
-            "/api/reprobados",
-            "/api/dictaminaciones",
-            "/api/dictaminaciones",
-            "/api/dictaminaciones/{clave}",
-            "/api/dictaminaciones/bulk",
-        ),
+        settings=api_settings(),
         transport=httpx.MockTransport(handler),
     )
     asyncio.run(services.auth_controller.login("directivo", "secreto"))
@@ -319,15 +265,8 @@ def test_production_services_update_rulings_through_the_shared_api_client():
         return httpx.Response(200, json=updated)
 
     services = build_services(
-        settings=ApiSettings(
-            "http://api.test",
-            "/api/auth/login",
-            "/api/inscritos/{boleta}",
-            "/api/reprobados",
-            "/api/dictaminaciones",
-            "/api/dictaminaciones",
-            "/custom/dictaminaciones/{clave}",
-            "/api/dictaminaciones/bulk",
+        settings=api_settings(
+            dictamen_update_path="/custom/dictaminaciones/{clave}"
         ),
         transport=httpx.MockTransport(handler),
     )
@@ -380,15 +319,8 @@ def test_production_services_delete_rulings_through_the_shared_api_client():
         )
 
     services = build_services(
-        settings=ApiSettings(
-            "http://api.test",
-            "/api/auth/login",
-            "/api/inscritos/{boleta}",
-            "/api/reprobados",
-            "/api/dictaminaciones",
-            "/api/dictaminaciones",
-            "/api/dictaminaciones/{clave}",
-            "/custom/dictaminaciones/bulk",
+        settings=api_settings(
+            dictamen_delete_path="/custom/dictaminaciones/bulk"
         ),
         transport=httpx.MockTransport(handler),
     )

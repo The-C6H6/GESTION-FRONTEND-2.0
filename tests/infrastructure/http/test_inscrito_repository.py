@@ -10,12 +10,12 @@ from esiqie_dictamenes.core.errors import (
     SessionExpiredError,
     UnexpectedResponseError,
 )
-from esiqie_dictamenes.core.settings import ApiSettings
 from esiqie_dictamenes.infrastructure.http.api_client import ApiClient
 from esiqie_dictamenes.infrastructure.http.inscrito_repository import (
     ApiInscritoRepository,
 )
 from esiqie_dictamenes.infrastructure.http.token_store import AuthTokenStore
+from tests.helpers import api_settings
 
 
 INSCRITO_RESPONSE = {
@@ -52,16 +52,7 @@ INSCRITO_RESPONSE = {
 
 
 def _repository(handler, *, with_token=True):
-    settings = ApiSettings(
-        "http://api.test",
-        "/api/auth/login",
-        "/api/inscritos/{boleta}",
-        "/api/reprobados",
-        "/api/dictaminaciones",
-        "/api/dictaminaciones",
-        "/api/dictaminaciones/{clave}",
-        "/api/dictaminaciones/bulk",
-    )
+    settings = api_settings()
     tokens = AuthTokenStore()
     if with_token:
         tokens.replace("access-token", "refresh-token")

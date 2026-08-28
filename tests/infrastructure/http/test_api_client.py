@@ -16,23 +16,14 @@ from esiqie_dictamenes.core.errors import (
     UnexpectedResponseError,
     ValidationError,
 )
-from esiqie_dictamenes.core.settings import ApiSettings
 from esiqie_dictamenes.infrastructure.http.api_client import ApiClient
 from esiqie_dictamenes.infrastructure.http.token_store import AuthTokenStore
+from tests.helpers import api_settings
 
 
 def _client(handler, tokens=None):
     return ApiClient(
-        ApiSettings(
-            "http://api.test",
-            "/api/auth/login",
-            "/api/inscritos/{boleta}",
-            "/api/reprobados",
-            "/api/dictaminaciones",
-            "/api/dictaminaciones",
-            "/api/dictaminaciones/{clave}",
-            "/api/dictaminaciones/bulk",
-        ),
+        api_settings(),
         tokens or AuthTokenStore(),
         transport=httpx.MockTransport(handler),
     )
