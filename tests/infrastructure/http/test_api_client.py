@@ -11,6 +11,7 @@ from esiqie_dictamenes.core.errors import (
     AuthorizationError,
     BadRequestError,
     NotFoundError,
+    SessionChangedError,
     SessionExpiredError,
     ServiceUnavailableError,
     UnexpectedResponseError,
@@ -596,5 +597,315 @@ def test_api_client_shares_one_refresh_without_cross_wiring_concurrent_requests(
         assert refresh_calls == 1
         assert old_token_calls == 2
         assert new_token_calls == 2
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("refresh_result", ["terminal", "invalid", "success"])
+def test_api_client_never_mutates_or_reuses_a_replacement_session(
+    refresh_result,
+):
+    async def scenario():
+        refresh_started = asyncio.Event()
+        release_refresh = asyncio.Event()
+        requests = []
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            if request.url.path == "/api/auth/refresh":
+                refresh_started.set()
+                await release_refresh.wait()
+                if refresh_result == "terminal":
+                    return httpx.Response(401)
+                if refresh_result == "invalid":
+                    return httpx.Response(200, json={"access_token": "new-a"})
+                return httpx.Response(
+                    200,
+                    json={
+                        "access_token": "new-a",
+                        "refresh_token": "new-a-refresh",
+                    },
+                )
+            if request.headers["Authorization"] == "Bearer a-access":
+                return httpx.Response(401)
+            assert request.headers["Authorization"] == "Bearer b-access"
+            return httpx.Response(200, json={"wrong_session": True})
+
+        store = AuthSessionStore()
+        store.begin("a-access", "a-refresh")
+        store.authenticate(authenticated_user())
+        client = _client(handler, store)
+
+        request_task = asyncio.create_task(
+            client.request_json("GET", "/resource")
+        )
+        await refresh_started.wait()
+
+        replacement = store.begin("b-access", "b-refresh")
+        replacement_user = authenticated_user(is_admin=False)
+        store.authenticate(replacement_user)
+        release_refresh.set()
+
+        with pytest.raises(SessionChangedError):
+            await request_task
+
+        assert store.current is replacement
+        assert store.current.access_token == "b-access"
+        assert store.current.refresh_token == "b-refresh"
+        assert store.current.current_user == replacement_user
+        assert [
+            request.headers.get("Authorization")
+            for request in requests
+            if request.url.path == "/resource"
+        ] == ["Bearer a-access"]
+
+    asyncio.run(scenario())
+
+
+def test_api_client_replay_401_never_clears_a_replacement_session():
+    async def scenario():
+        replay_started = asyncio.Event()
+        release_replay = asyncio.Event()
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/api/auth/refresh":
+                return httpx.Response(
+                    200,
+                    json={
+                        "access_token": "new-a",
+                        "refresh_token": "new-a-refresh",
+                    },
+                )
+            if request.headers["Authorization"] == "Bearer a-access":
+                return httpx.Response(401)
+            assert request.headers["Authorization"] == "Bearer new-a"
+            replay_started.set()
+            await release_replay.wait()
+            return httpx.Response(401)
+
+        store = AuthSessionStore()
+        store.begin("a-access", "a-refresh")
+        store.authenticate(authenticated_user())
+        client = _client(handler, store)
+
+        request_task = asyncio.create_task(
+            client.request_json("GET", "/resource")
+        )
+        await replay_started.wait()
+
+        replacement = store.begin("b-access", "b-refresh")
+        replacement_user = authenticated_user(is_admin=False)
+        store.authenticate(replacement_user)
+        release_replay.set()
+
+        with pytest.raises(SessionChangedError):
+            await request_task
+
+        assert store.current is replacement
+        assert store.current.access_token == "b-access"
+        assert store.current.refresh_token == "b-refresh"
+        assert store.current.current_user == replacement_user
+
+    asyncio.run(scenario())
+
+
+def test_api_client_cleans_overlapping_session_flights_independently():
+    async def scenario():
+        a_refresh_started = asyncio.Event()
+        b_refresh_started = asyncio.Event()
+        release_a_refresh = asyncio.Event()
+        release_b_refresh = asyncio.Event()
+        refresh_calls = {"a": 0, "b": 0}
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/api/auth/refresh":
+                refresh_token = json.loads(request.content)["refresh_token"]
+                if refresh_token == "a-refresh":
+                    refresh_calls["a"] += 1
+                    a_refresh_started.set()
+                    await release_a_refresh.wait()
+                    return httpx.Response(503)
+                assert refresh_token == "b-refresh"
+                refresh_calls["b"] += 1
+                if refresh_calls["b"] == 1:
+                    b_refresh_started.set()
+                    await release_b_refresh.wait()
+                    return httpx.Response(503)
+                return httpx.Response(
+                    200,
+                    json={
+                        "access_token": "new-b",
+                        "refresh_token": "new-b-refresh",
+                    },
+                )
+            authorization = request.headers["Authorization"]
+            if authorization in {"Bearer a-access", "Bearer b-access"}:
+                return httpx.Response(401)
+            assert authorization == "Bearer new-b"
+            return httpx.Response(200, json={"ok": True})
+
+        store = AuthSessionStore()
+        store.begin("a-access", "a-refresh")
+        store.authenticate(authenticated_user())
+        client = _client(handler, store)
+
+        a_task = asyncio.create_task(
+            client.request_json("GET", "/resource-a")
+        )
+        await a_refresh_started.wait()
+
+        replacement = store.begin("b-access", "b-refresh")
+        replacement_user = authenticated_user(is_admin=False)
+        store.authenticate(replacement_user)
+        b_task = asyncio.create_task(
+            client.request_json("GET", "/resource-b")
+        )
+        await b_refresh_started.wait()
+
+        release_a_refresh.set()
+        release_b_refresh.set()
+        a_result, b_result = await asyncio.gather(
+            a_task,
+            b_task,
+            return_exceptions=True,
+        )
+
+        assert isinstance(a_result, SessionChangedError)
+        assert isinstance(b_result, ServiceUnavailableError)
+        assert store.current is replacement
+        assert store.current.access_token == "b-access"
+        assert store.current.refresh_token == "b-refresh"
+        assert store.current.current_user == replacement_user
+
+        result = await client.request_json("GET", "/resource-b")
+
+        assert result == {"ok": True}
+        assert refresh_calls == {"a": 1, "b": 2}
+        assert store.current is replacement
+        assert store.current.access_token == "new-b"
+        assert store.current.refresh_token == "new-b-refresh"
+
+    asyncio.run(scenario())
+
+
+def test_api_client_keeps_shared_refresh_when_one_waiter_is_cancelled():
+    async def scenario():
+        both_requests_arrived = asyncio.Event()
+        refresh_started = asyncio.Event()
+        release_refresh = asyncio.Event()
+        old_calls = 0
+        refresh_calls = 0
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal old_calls, refresh_calls
+            if request.url.path == "/api/auth/refresh":
+                refresh_calls += 1
+                refresh_started.set()
+                await release_refresh.wait()
+                return httpx.Response(
+                    200,
+                    json={
+                        "access_token": "new-access",
+                        "refresh_token": "new-refresh",
+                    },
+                )
+            if request.headers["Authorization"] == "Bearer old-access":
+                old_calls += 1
+                if old_calls == 2:
+                    both_requests_arrived.set()
+                await both_requests_arrived.wait()
+                return httpx.Response(401)
+            return httpx.Response(
+                200,
+                json={"request": request.url.params["request"]},
+            )
+
+        store = AuthSessionStore()
+        store.begin("old-access", "old-refresh")
+        client = _client(handler, store)
+        first = asyncio.create_task(
+            client.request_json("GET", "/resource", params={"request": 1})
+        )
+        second = asyncio.create_task(
+            client.request_json("GET", "/resource", params={"request": 2})
+        )
+
+        await refresh_started.wait()
+        first.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await first
+        release_refresh.set()
+
+        assert await second == {"request": "2"}
+        assert refresh_calls == 1
+        assert store.current is not None
+        assert store.current.access_token == "new-access"
+        assert store.current.refresh_token == "new-refresh"
+
+    asyncio.run(scenario())
+
+
+def test_api_client_removes_finished_refresh_after_all_waiters_cancel():
+    async def scenario():
+        both_requests_arrived = asyncio.Event()
+        refresh_started = asyncio.Event()
+        release_refresh = asyncio.Event()
+        old_calls = 0
+        refresh_calls = 0
+        first_refresh_task = None
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal old_calls, refresh_calls, first_refresh_task
+            if request.url.path == "/api/auth/refresh":
+                refresh_calls += 1
+                if refresh_calls == 1:
+                    first_refresh_task = asyncio.current_task()
+                    refresh_started.set()
+                    await release_refresh.wait()
+                    return httpx.Response(503)
+                return httpx.Response(
+                    200,
+                    json={
+                        "access_token": "new-access",
+                        "refresh_token": "new-refresh",
+                    },
+                )
+            if request.headers["Authorization"] == "Bearer old-access":
+                old_calls += 1
+                if old_calls == 2:
+                    both_requests_arrived.set()
+                await both_requests_arrived.wait()
+                return httpx.Response(401)
+            return httpx.Response(200, json={"ok": True})
+
+        store = AuthSessionStore()
+        original = store.begin("old-access", "old-refresh")
+        client = _client(handler, store)
+        first = asyncio.create_task(client.request_json("GET", "/resource"))
+        second = asyncio.create_task(client.request_json("GET", "/resource"))
+
+        await refresh_started.wait()
+        first.cancel()
+        second.cancel()
+        cancelled = await asyncio.gather(
+            first,
+            second,
+            return_exceptions=True,
+        )
+        assert all(
+            isinstance(result, asyncio.CancelledError) for result in cancelled
+        )
+
+        release_refresh.set()
+        assert first_refresh_task is not None
+        await asyncio.gather(first_refresh_task, return_exceptions=True)
+
+        result = await client.request_json("GET", "/resource")
+
+        assert result == {"ok": True}
+        assert refresh_calls == 2
+        assert store.current is original
+        assert store.current.access_token == "new-access"
+        assert store.current.refresh_token == "new-refresh"
 
     asyncio.run(scenario())

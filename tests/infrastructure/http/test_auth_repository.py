@@ -329,3 +329,106 @@ def test_api_login_clears_the_pending_session_after_transient_refresh_failure(
         "/api/auth/refresh",
     ]
     assert store.current is None
+
+
+def test_late_credentials_failure_does_not_clear_a_newer_login_session():
+    async def scenario():
+        first_login_started = asyncio.Event()
+        release_first_login = asyncio.Event()
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/api/auth/login":
+                username = json.loads(request.content)["username"]
+                if username == "first":
+                    first_login_started.set()
+                    await release_first_login.wait()
+                    return httpx.Response(401)
+                return httpx.Response(
+                    200,
+                    json={
+                        "access_token": "second-access",
+                        "refresh_token": "second-refresh",
+                    },
+                )
+            assert request.headers["Authorization"] == "Bearer second-access"
+            return httpx.Response(
+                200,
+                json={
+                    "id": 2,
+                    "username": "second",
+                    "is_active": True,
+                    "is_admin": False,
+                },
+            )
+
+        repository, store = repository_and_store(handler)
+        first_login = asyncio.create_task(
+            repository.login("first", "secret")
+        )
+        await first_login_started.wait()
+
+        second_session = await repository.login("second", "secret")
+        release_first_login.set()
+
+        with pytest.raises(AuthenticationError):
+            await first_login
+
+        assert store.current is second_session
+        assert store.current.access_token == "second-access"
+        assert store.current.refresh_token == "second-refresh"
+        assert store.current.current_user is not None
+        assert store.current.current_user.username == "second"
+
+    asyncio.run(scenario())
+
+
+def test_late_identity_failure_does_not_clear_a_newer_login_session():
+    async def scenario():
+        first_identity_started = asyncio.Event()
+        release_first_identity = asyncio.Event()
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/api/auth/login":
+                username = json.loads(request.content)["username"]
+                return httpx.Response(
+                    200,
+                    json={
+                        "access_token": f"{username}-access",
+                        "refresh_token": f"{username}-refresh",
+                    },
+                )
+            authorization = request.headers["Authorization"]
+            if authorization == "Bearer first-access":
+                first_identity_started.set()
+                await release_first_identity.wait()
+                return httpx.Response(503)
+            assert authorization == "Bearer second-access"
+            return httpx.Response(
+                200,
+                json={
+                    "id": 2,
+                    "username": "second",
+                    "is_active": True,
+                    "is_admin": False,
+                },
+            )
+
+        repository, store = repository_and_store(handler)
+        first_login = asyncio.create_task(
+            repository.login("first", "secret")
+        )
+        await first_identity_started.wait()
+
+        second_session = await repository.login("second", "secret")
+        release_first_identity.set()
+
+        with pytest.raises(ServiceUnavailableError):
+            await first_login
+
+        assert store.current is second_session
+        assert store.current.access_token == "second-access"
+        assert store.current.refresh_token == "second-refresh"
+        assert store.current.current_user is not None
+        assert store.current.current_user.username == "second"
+
+    asyncio.run(scenario())

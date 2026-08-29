@@ -1,5 +1,6 @@
 import pytest
 
+from esiqie_dictamenes.core import errors as core_errors
 from esiqie_dictamenes.core.errors import (
     ApiConnectionError,
     ApiTimeoutError,
@@ -51,3 +52,10 @@ def test_unknown_errors_do_not_expose_technical_details():
 def test_api_errors_have_safe_user_messages(error, message):
     assert to_user_message(error) == message
     assert not any(code in message for code in ("401", "403", "404", "422", "500"))
+
+
+def test_session_changed_error_has_a_safe_user_message():
+    error_type = getattr(core_errors, "SessionChangedError", None)
+
+    assert error_type is not None
+    assert to_user_message(error_type()) == "La sesión cambió. Intenta nuevamente."

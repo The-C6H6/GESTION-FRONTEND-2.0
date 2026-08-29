@@ -1,7 +1,11 @@
 from types import SimpleNamespace
 
 from esiqie_dictamenes.core.context import AppContextValue
-from esiqie_dictamenes.core.errors import SessionExpiredError, ValidationError
+from esiqie_dictamenes.core.errors import (
+    SessionChangedError,
+    SessionExpiredError,
+    ValidationError,
+)
 from esiqie_dictamenes.core.routes import RoutePath, is_protected_route
 from tests.helpers import authenticated_store
 
@@ -48,4 +52,21 @@ def test_app_context_ignores_errors_unrelated_to_the_session():
     handled = context.handle_session_error(ValidationError("Dato inválido."))
 
     assert handled is False
+    assert session_updates == []
+
+
+def test_app_context_does_not_invalidate_a_replacement_session():
+    store = authenticated_store()
+    replacement = store.current
+    session_updates = []
+    context = AppContextValue(
+        services=SimpleNamespace(clear_authentication=store.clear),
+        session=replacement,
+        set_session=session_updates.append,
+    )
+
+    handled = context.handle_session_error(SessionChangedError())
+
+    assert handled is False
+    assert store.current is replacement
     assert session_updates == []

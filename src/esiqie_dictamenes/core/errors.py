@@ -63,6 +63,13 @@ class SessionExpiredError(AppError):
         super().__init__("La sesión no es válida. Inicia sesión nuevamente.")
 
 
+class SessionChangedError(AppError):
+    """Raised when in-flight work no longer owns the active session."""
+
+    def __init__(self) -> None:
+        super().__init__("La sesión cambió. Intenta nuevamente.")
+
+
 class AuthorizationError(AppError):
     """Raised when the authenticated identity lacks permission."""
 

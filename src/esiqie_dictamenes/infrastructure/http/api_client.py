@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from collections.abc import Mapping
+from dataclasses import dataclass
 
 import httpx
 
@@ -10,6 +11,7 @@ from esiqie_dictamenes.core.errors import (
     AuthorizationError,
     BadRequestError,
     NotFoundError,
+    SessionChangedError,
     SessionExpiredError,
     ServiceUnavailableError,
     UnexpectedResponseError,
@@ -17,11 +19,20 @@ from esiqie_dictamenes.core.errors import (
 )
 from esiqie_dictamenes.core.settings import ApiSettings
 from esiqie_dictamenes.core.session import AuthSessionStore
+from esiqie_dictamenes.features.auth.models import Session
 from esiqie_dictamenes.infrastructure.http.auth_payloads import (
     parse_token_pair,
 )
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class _RefreshFlight:
+    session: Session
+    failed_access_token: str
+    task: asyncio.Task[str]
+    waiters: int = 0
 
 
 class ApiClient:
@@ -36,9 +47,7 @@ class ApiClient:
         self._session = session
         self._transport = transport
         self._refresh_lock = asyncio.Lock()
-        self._refresh_task: asyncio.Task[None] | None = None
-        self._refresh_access_token: str | None = None
-        self._refresh_waiters = 0
+        self._refresh_flights: list[_RefreshFlight] = []
 
     async def request_json(
         self,
@@ -51,7 +60,10 @@ class ApiClient:
         authenticated: bool = True,
         allow_refresh: bool = True,
     ) -> object:
-        access_token = self._session.access_token if authenticated else None
+        origin_session = self._session.current if authenticated else None
+        access_token = (
+            origin_session.access_token if origin_session is not None else None
+        )
         response = await self._send_request(
             method,
             path,
@@ -64,17 +76,28 @@ class ApiClient:
             and authenticated
             and allow_refresh
         ):
-            await self._recover_session(access_token)
+            replay_access_token = await self._recover_session(
+                origin_session,
+                access_token,
+            )
             response = await self._send_request(
                 method,
                 path,
                 json=json,
                 params=params,
-                access_token=self._session.access_token,
+                access_token=replay_access_token,
+            )
+            self._require_session_ownership(
+                origin_session,
+                replay_access_token,
             )
             if response.status_code == 401:
-                self._session.clear()
-                raise SessionExpiredError()
+                if self._clear_owned_session(
+                    origin_session,
+                    replay_access_token,
+                ):
+                    raise SessionExpiredError()
+                raise SessionChangedError()
 
         self._raise_for_status(response)
         if (
@@ -138,98 +161,200 @@ class ApiClient:
             )
             raise UnexpectedResponseError() from error
 
-    async def _recover_session(self, failed_access_token: str | None) -> None:
+    async def _recover_session(
+        self,
+        origin_session: Session | None,
+        failed_access_token: str | None,
+    ) -> str:
+        if origin_session is None or failed_access_token is None:
+            if self._session.current is origin_session:
+                self._session.clear()
+                raise SessionExpiredError()
+            raise SessionChangedError()
+
         async with self._refresh_lock:
-            current_access_token = self._session.access_token
-            if (
-                current_access_token is not None
-                and current_access_token != failed_access_token
-            ):
-                return
-            if (
-                self._refresh_task is not None
-                and self._refresh_access_token == failed_access_token
-            ):
-                refresh_task = self._refresh_task
-            else:
+            if self._session.current is not origin_session:
+                raise SessionChangedError()
+            if origin_session.access_token != failed_access_token:
+                return origin_session.access_token
+
+            flight = self._find_refresh_flight(
+                origin_session,
+                failed_access_token,
+            )
+            if flight is not None and flight.waiters == 0 and flight.task.done():
+                self._remove_refresh_flight(flight)
+                flight = None
+            if flight is None:
                 refresh_task = asyncio.create_task(
-                    self._perform_refresh(failed_access_token)
+                    self._perform_refresh(origin_session, failed_access_token)
                 )
-                self._refresh_task = refresh_task
-                self._refresh_access_token = failed_access_token
-                refresh_task.add_done_callback(self._schedule_refresh_cleanup)
-            self._refresh_waiters += 1
+                flight = _RefreshFlight(
+                    origin_session,
+                    failed_access_token,
+                    refresh_task,
+                )
+                self._refresh_flights.append(flight)
+                refresh_task.add_done_callback(
+                    lambda _task, refresh_flight=flight: (
+                        self._schedule_refresh_cleanup(refresh_flight)
+                    )
+                )
+            flight.waiters += 1
 
         try:
-            await asyncio.shield(refresh_task)
+            replay_access_token = await asyncio.shield(flight.task)
         finally:
             async with self._refresh_lock:
-                self._refresh_waiters -= 1
-                if (
-                    self._refresh_task is refresh_task
-                    and self._refresh_waiters == 0
-                    and refresh_task.done()
-                ):
-                    self._clear_refresh_task()
+                flight.waiters -= 1
+                if flight.waiters == 0 and flight.task.done():
+                    self._remove_refresh_flight(flight)
 
-    async def _perform_refresh(self, failed_access_token: str | None) -> None:
-        session = self._session.current
-        refresh_token = self._session.refresh_token
-        if (
-            session is None
-            or failed_access_token is None
-            or refresh_token is None
-            or not refresh_token.strip()
-        ):
-            self._session.clear()
-            raise SessionExpiredError()
+        self._require_session_ownership(
+            origin_session,
+            replay_access_token,
+        )
+        return replay_access_token
 
-        response = await self._send_request(
-            "POST",
-            self._settings.refresh_path,
-            json={"refresh_token": refresh_token},
-            access_token=None,
+    async def _perform_refresh(
+        self,
+        origin_session: Session,
+        failed_access_token: str,
+    ) -> str:
+        self._require_session_ownership(
+            origin_session,
+            failed_access_token,
+        )
+        refresh_token = origin_session.refresh_token
+        if not refresh_token.strip():
+            if self._clear_owned_session(
+                origin_session,
+                failed_access_token,
+            ):
+                raise SessionExpiredError()
+            raise SessionChangedError()
+
+        try:
+            response = await self._send_request(
+                "POST",
+                self._settings.refresh_path,
+                json={"refresh_token": refresh_token},
+                access_token=None,
+            )
+        except (ApiConnectionError, ApiTimeoutError) as error:
+            try:
+                self._require_session_ownership(
+                    origin_session,
+                    failed_access_token,
+                    refresh_token,
+                )
+            except SessionChangedError as changed_error:
+                raise changed_error from error
+            raise
+
+        self._require_session_ownership(
+            origin_session,
+            failed_access_token,
+            refresh_token,
         )
         if response.status_code in {401, 403}:
-            self._session.clear()
-            raise SessionExpiredError()
+            if self._clear_owned_session(
+                origin_session,
+                failed_access_token,
+                refresh_token,
+            ):
+                raise SessionExpiredError()
+            raise SessionChangedError()
         self._raise_for_status(response)
         try:
             access_token, next_refresh_token = parse_token_pair(
                 self._decode_json(response, "POST")
             )
         except UnexpectedResponseError:
-            self._session.clear()
+            if not self._clear_owned_session(
+                origin_session,
+                failed_access_token,
+                refresh_token,
+            ):
+                raise SessionChangedError()
             raise
 
-        if self._session.current is not session:
-            if self._session.current is None:
-                raise SessionExpiredError()
-            return
-        if (
-            self._session.access_token != failed_access_token
-            or self._session.refresh_token != refresh_token
-        ):
-            return
+        self._require_session_ownership(
+            origin_session,
+            failed_access_token,
+            refresh_token,
+        )
         self._session.rotate(access_token, next_refresh_token)
+        return access_token
 
-    def _schedule_refresh_cleanup(self, refresh_task: asyncio.Task[None]) -> None:
-        if self._refresh_task is refresh_task and self._refresh_waiters == 0:
-            asyncio.create_task(self._clear_finished_refresh_task(refresh_task))
-
-    async def _clear_finished_refresh_task(
+    def _find_refresh_flight(
         self,
-        refresh_task: asyncio.Task[None],
+        origin_session: Session,
+        failed_access_token: str,
+    ) -> _RefreshFlight | None:
+        for flight in self._refresh_flights:
+            if (
+                flight.session is origin_session
+                and flight.failed_access_token == failed_access_token
+            ):
+                return flight
+        return None
+
+    def _schedule_refresh_cleanup(self, flight: _RefreshFlight) -> None:
+        if flight.waiters == 0 and self._has_refresh_flight(flight):
+            asyncio.create_task(self._clear_finished_refresh_flight(flight))
+
+    async def _clear_finished_refresh_flight(
+        self,
+        flight: _RefreshFlight,
     ) -> None:
         async with self._refresh_lock:
-            if self._refresh_task is refresh_task and self._refresh_waiters == 0:
-                self._clear_refresh_task()
-        if not refresh_task.cancelled():
-            refresh_task.exception()
+            if flight.waiters == 0:
+                self._remove_refresh_flight(flight)
+        if not flight.task.cancelled():
+            flight.task.exception()
 
-    def _clear_refresh_task(self) -> None:
-        self._refresh_task = None
-        self._refresh_access_token = None
+    def _has_refresh_flight(self, flight: _RefreshFlight) -> bool:
+        return any(active is flight for active in self._refresh_flights)
+
+    def _remove_refresh_flight(self, flight: _RefreshFlight) -> None:
+        self._refresh_flights = [
+            active for active in self._refresh_flights if active is not flight
+        ]
+
+    def _require_session_ownership(
+        self,
+        origin_session: Session | None,
+        access_token: str,
+        refresh_token: str | None = None,
+    ) -> None:
+        if (
+            origin_session is None
+            or self._session.current is not origin_session
+            or origin_session.access_token != access_token
+            or (
+                refresh_token is not None
+                and origin_session.refresh_token != refresh_token
+            )
+        ):
+            raise SessionChangedError()
+
+    def _clear_owned_session(
+        self,
+        origin_session: Session | None,
+        access_token: str,
+        refresh_token: str | None = None,
+    ) -> bool:
+        try:
+            self._require_session_ownership(
+                origin_session,
+                access_token,
+                refresh_token,
+            )
+        except SessionChangedError:
+            return False
+        self._session.clear()
+        return True
 
     def _raise_for_status(self, response: httpx.Response) -> None:
         status_code = response.status_code

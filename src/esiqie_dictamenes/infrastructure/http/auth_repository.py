@@ -1,6 +1,7 @@
 from esiqie_dictamenes.core.errors import (
     AuthenticationError,
     InactiveUserError,
+    SessionChangedError,
     SessionExpiredError,
 )
 from esiqie_dictamenes.core.session import AuthSessionStore
@@ -27,6 +28,7 @@ class ApiAuthRepository:
 
     async def login(self, username: str, password: str) -> Session:
         self._store.clear()
+        pending_session: Session | None = None
         try:
             response = await self._client.request_json(
                 "POST",
@@ -36,23 +38,31 @@ class ApiAuthRepository:
                 allow_refresh=False,
             )
         except SessionExpiredError as error:
-            self._store.clear()
+            self._clear_pending_session(pending_session)
             raise AuthenticationError() from error
         except Exception:
-            self._store.clear()
+            self._clear_pending_session(pending_session)
             raise
 
         try:
             access_token, refresh_token = parse_token_pair(response)
-            self._store.begin(access_token, refresh_token)
+            if self._store.current is not None:
+                raise SessionChangedError()
+            pending_session = self._store.begin(access_token, refresh_token)
             identity_response = await self._client.request_json(
                 "GET",
                 self._auth_me_path,
             )
+            if self._store.current is not pending_session:
+                raise SessionChangedError()
             user = parse_authenticated_user(identity_response)
             if not user.is_active:
                 raise InactiveUserError()
             return self._store.authenticate(user)
         except Exception:
-            self._store.clear()
+            self._clear_pending_session(pending_session)
             raise
+
+    def _clear_pending_session(self, pending_session: Session | None) -> None:
+        if self._store.current is pending_session:
+            self._store.clear()
