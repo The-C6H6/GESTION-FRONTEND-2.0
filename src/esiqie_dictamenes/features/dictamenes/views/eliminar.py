@@ -110,7 +110,10 @@ async def _reload_after_delete(
 async def _load_delete(
     controller,
     records: tuple[Dictamen, ...],
+    *,
+    require_admin: Callable[[], None],
 ) -> int:
+    require_admin()
     return await controller.delete_dictamenes(records)
 
 

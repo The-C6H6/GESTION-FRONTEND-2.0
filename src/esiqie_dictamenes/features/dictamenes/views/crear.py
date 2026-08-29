@@ -10,6 +10,7 @@ from esiqie_dictamenes.core.errors import (
     to_user_message,
 )
 from esiqie_dictamenes.core.routes import RoutePath
+from esiqie_dictamenes.features.auth.models import AuthenticatedUser
 from esiqie_dictamenes.features.dictamenes.pdf import format_session_date
 from esiqie_dictamenes.features.dictamenes.periodos import current_period
 from esiqie_dictamenes.features.alumnos.views.reprobados import eligible_subjects_table
@@ -29,6 +30,25 @@ class _RequestGate:
 
     def leave(self) -> None:
         self.active = False
+
+
+def _page_copy(user: AuthenticatedUser) -> tuple[str, str]:
+    if user.is_admin:
+        return (
+            "Nuevo dictamen",
+            "Selecciona el tipo de alumno y captura los datos de la sesión.",
+        )
+    return (
+        "Consultar alumnos",
+        "Consulta alumnos inscritos o con materias reprobadas.",
+    )
+
+
+def _admin_controls(
+    user: AuthenticatedUser,
+    controls: tuple[ft.Control, ...],
+) -> tuple[ft.Control, ...]:
+    return controls if user.is_admin else ()
 
 
 async def _run_guarded_request(
@@ -53,6 +73,11 @@ async def _find_student(services, source: str, query: str, period: str):
         query,
         period,
     )
+
+
+async def _create_dictamen(services, **kwargs):
+    services.auth_session.require_admin()
+    return await services.dictamen_controller.create(**kwargs)
 
 
 def _redirect_expired_session(context, error: Exception, navigate: Callable) -> bool:
@@ -168,6 +193,8 @@ def _build_session_date_picker(
 @ft.component
 def DictamenCreateView() -> ft.Control:
     context = use_app_context()
+    user = context.session.current_user
+    assert user is not None
     search_gate = ft.use_memo(_RequestGate, [])
     create_gate = ft.use_memo(_RequestGate, [])
     source, set_source = ft.use_state("inscrito")
@@ -195,7 +222,7 @@ def DictamenCreateView() -> ft.Control:
         on_change=select_session_date,
         on_dismiss=lambda _event: set_show_date_picker(False),
     )
-    ft.use_dialog(picker if show_date_picker else None)
+    ft.use_dialog(picker if user.is_admin and show_date_picker else None)
 
     async def search() -> None:
         async def operation() -> None:
@@ -229,7 +256,8 @@ def DictamenCreateView() -> ft.Control:
                     "El alumno no puede dictaminarse por que no tiene materias "
                     "que se puedan dictaminar"
                 )
-            result = await context.services.dictamen_controller.create(
+            result = await _create_dictamen(
+                context.services,
                 alumno=alumno,
                 dictaminacion=dictaminacion,
                 director=director,
@@ -269,6 +297,7 @@ def DictamenCreateView() -> ft.Control:
     student_card = ft.Container()
     if alumno:
         student_card = ft.Card(
+            key="dictamen-student-result",
             content=ft.Container(
                 padding=16,
                 content=ft.Column(
@@ -286,9 +315,60 @@ def DictamenCreateView() -> ft.Control:
                 ),
             )
         )
+    title, description = _page_copy(user)
+    admin_controls = _admin_controls(
+        user,
+        (
+            ft.TextField(
+                label="Nombre del director",
+                value=director,
+                on_change=lambda e: set_director(e.control.value),
+                disabled=create_busy,
+                key="dictamen-director",
+            ),
+            ft.Row(
+                [
+                    ft.TextField(
+                        label="Fecha de sesión",
+                        value=format_session_date(fecha_sesion),
+                        read_only=True,
+                        expand=True,
+                        key="dictamen-session-date",
+                    ),
+                    ft.Button(
+                        "Elegir fecha",
+                        icon=ft.Icons.CALENDAR_MONTH,
+                        on_click=lambda: set_show_date_picker(True),
+                        disabled=create_busy,
+                        key="dictamen-session-date-open",
+                    ),
+                ]
+            ),
+            ft.TextField(
+                label="Dictaminación",
+                value=dictaminacion,
+                multiline=True,
+                min_lines=4,
+                on_change=lambda e: set_dictaminacion(e.control.value),
+                disabled=create_busy,
+                key="dictamen-text",
+            ),
+            ft.Row(
+                [
+                    _build_create_button(
+                        search_busy,
+                        create_busy,
+                        create,
+                        ruling_unavailable=ruling_unavailable,
+                    )
+                ],
+                alignment=ft.MainAxisAlignment.END,
+            ),
+        ),
+    )
     return ft.Column(
         [
-            page_header("Nuevo dictamen", "Busca un alumno inscrito o reprobado y genera su dictamen."),
+            page_header(title, description),
             ft.Dropdown(
                 label="Origen de la búsqueda",
                 value=source,
@@ -347,51 +427,7 @@ def DictamenCreateView() -> ft.Control:
             ),
             feedback(message, error=is_error),
             student_card,
-            ft.TextField(
-                label="Nombre del director",
-                value=director,
-                on_change=lambda e: set_director(e.control.value),
-                disabled=create_busy,
-                key="dictamen-director",
-            ),
-            ft.Row(
-                [
-                    ft.TextField(
-                        label="Fecha de sesión",
-                        value=format_session_date(fecha_sesion),
-                        read_only=True,
-                        expand=True,
-                        key="dictamen-session-date",
-                    ),
-                    ft.Button(
-                        "Elegir fecha",
-                        icon=ft.Icons.CALENDAR_MONTH,
-                        on_click=lambda: set_show_date_picker(True),
-                        disabled=create_busy,
-                        key="dictamen-session-date-open",
-                    ),
-                ]
-            ),
-            ft.TextField(
-                label="Dictaminación",
-                value=dictaminacion,
-                multiline=True,
-                min_lines=4,
-                on_change=lambda e: set_dictaminacion(e.control.value),
-                disabled=create_busy,
-                key="dictamen-text",
-            ),
-            ft.Row(
-                [
-                    _build_create_button(
-                        search_busy,
-                        create_busy,
-                        create,
-                        ruling_unavailable=ruling_unavailable,
-                    )
-                ],
-                alignment=ft.MainAxisAlignment.END,
-            ),
+            *admin_controls,
         ],
         scroll=ft.ScrollMode.AUTO,
         expand=True,

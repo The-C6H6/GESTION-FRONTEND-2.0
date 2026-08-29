@@ -6,11 +6,13 @@ from esiqie_dictamenes.core.context import use_app_context
 from esiqie_dictamenes.core.errors import (
     ApiConnectionError,
     ApiTimeoutError,
+    AuthorizationError,
     NotFoundError,
     ValidationError,
     to_user_message,
 )
 from esiqie_dictamenes.core.routes import RoutePath
+from esiqie_dictamenes.features.auth.models import AuthenticatedUser
 from esiqie_dictamenes.features.dictamenes.models import (
     Dictamen,
     DictamenFilter,
@@ -138,12 +140,23 @@ async def _load_update(
     current: Dictamen,
     value: str,
     commit: Callable[[Dictamen], None],
+    *,
+    require_admin: Callable[[], None],
 ) -> bool:
+    require_admin()
     updated = await controller.update_dictaminacion(current, value)
     if updated == current:
         return False
     commit(updated)
     return True
+
+
+def _run_admin_action(
+    require_admin: Callable[[], None],
+    action: Callable[[], None],
+) -> None:
+    require_admin()
+    action()
 
 
 def _update_error_message(
@@ -213,6 +226,7 @@ def _build_search_controls(
 
 def _build_results_table(
     records: tuple[Dictamen, ...],
+    user: AuthenticatedUser,
     *,
     selected_keys: frozenset[str],
     busy: bool,
@@ -223,7 +237,7 @@ def _build_results_table(
     return ft.Row(
         [
             ft.DataTable(
-                show_checkbox_column=True,
+                show_checkbox_column=user.is_admin,
                 columns=[
                     ft.DataColumn(ft.Text("Clave")),
                     ft.DataColumn(ft.Text("Boleta")),
@@ -234,11 +248,13 @@ def _build_results_table(
                 rows=[
                     ft.DataRow(
                         data=record,
-                        selected=record.clave in selected_keys,
+                        selected=(
+                            user.is_admin and record.clave in selected_keys
+                        ),
                         disabled=busy,
                         on_select_change=(
                             None
-                            if busy
+                            if busy or not user.is_admin
                             else lambda _event, key=record.clave, selected=(
                                 record.clave in selected_keys
                             ): on_selection(key, not selected)
@@ -260,6 +276,7 @@ def _build_results_table(
 
 
 def _build_selection_actions(
+    user: AuthenticatedUser,
     *,
     busy: bool,
     has_results: bool,
@@ -267,7 +284,9 @@ def _build_selection_actions(
     selected_count: int = 0,
     on_edit: Callable,
     on_delete: Callable | None = None,
-) -> ft.Row:
+) -> ft.Control:
+    if not user.is_admin:
+        return ft.Container()
     delete_label = "Eliminar seleccionados"
     if selected_count == 1:
         delete_label = "Eliminar seleccionado"
@@ -295,6 +314,8 @@ def _build_selection_actions(
 @ft.component
 def DictamenSearchView() -> ft.Control:
     context = use_app_context()
+    user = context.session.current_user
+    assert user is not None
     gate = ft.use_memo(_RequestGate, [])
     criterion, set_criterion = ft.use_state("boleta")
     query, set_query = ft.use_state("")
@@ -383,27 +404,37 @@ def DictamenSearchView() -> ft.Control:
         set_selected_keys(_toggle_selected_key(selected_keys, clave, selected))
 
     def open_editor() -> None:
-        try:
+        def action() -> None:
             selected = _selected_record(records, selected_keys)
-        except (ValidationError, NotFoundError) as error:
+            set_editing_record(selected)
+            set_edit_value(selected.dictaminacion)
+            set_message("")
+            set_has_error(False)
+
+        try:
+            _run_admin_action(
+                context.services.auth_session.require_admin,
+                action,
+            )
+        except (AuthorizationError, ValidationError, NotFoundError) as error:
             set_message(to_user_message(error))
             set_has_error(True)
-            return
-        set_editing_record(selected)
-        set_edit_value(selected.dictaminacion)
-        set_message("")
-        set_has_error(False)
 
     def open_delete_confirmation() -> None:
-        try:
+        def action() -> None:
             selected = _selected_records(records, selected_keys)
-        except (ValidationError, NotFoundError) as error:
+            set_pending_delete(selected)
+            set_message("")
+            set_has_error(False)
+
+        try:
+            _run_admin_action(
+                context.services.auth_session.require_admin,
+                action,
+            )
+        except (AuthorizationError, ValidationError, NotFoundError) as error:
             set_message(to_user_message(error))
             set_has_error(True)
-            return
-        set_pending_delete(selected)
-        set_message("")
-        set_has_error(False)
 
     def commit_update(updated: Dictamen) -> None:
         if result is None:
@@ -424,6 +455,9 @@ def DictamenSearchView() -> ft.Control:
                     editing_record,
                     edit_value,
                     commit_update,
+                    require_admin=(
+                        context.services.auth_session.require_admin
+                    ),
                 )
                 if not changed:
                     set_message("No hay cambios por guardar.")
@@ -458,6 +492,9 @@ def DictamenSearchView() -> ft.Control:
                 deleted = await _load_delete(
                     context.services.dictamen_controller,
                     selected,
+                    require_admin=(
+                        context.services.auth_session.require_admin
+                    ),
                 )
             except Exception as error:
                 set_pending_delete(())
@@ -504,7 +541,7 @@ def DictamenSearchView() -> ft.Control:
         await _run_guarded_request(gate, set_busy, operation)
 
     delete_dialog = None
-    if pending_delete:
+    if user.is_admin and pending_delete:
         delete_dialog = _build_confirmation_dialog(
             pending_delete,
             busy=busy,
@@ -547,7 +584,7 @@ def DictamenSearchView() -> ft.Control:
             )
 
     edit_form = ft.Container()
-    if editing_record is not None:
+    if user.is_admin and editing_record is not None:
         edit_form = ft.Container(
             content=_build_edit_form(
                 record=editing_record,
@@ -580,11 +617,13 @@ def DictamenSearchView() -> ft.Control:
             feedback(message, error=has_error),
             _build_results_table(
                 records,
+                user,
                 selected_keys=selected_keys,
                 busy=busy,
                 on_selection=change_selection,
             ),
             _build_selection_actions(
+                user,
                 busy=busy,
                 has_results=bool(records),
                 editing=editing_record is not None,

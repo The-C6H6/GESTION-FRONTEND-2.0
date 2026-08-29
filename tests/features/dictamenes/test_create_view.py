@@ -18,7 +18,7 @@ from esiqie_dictamenes.features.alumnos.views.reprobados import (
 )
 from esiqie_dictamenes.features.dictamenes.models import MateriaElegible
 from esiqie_dictamenes.features.dictamenes.views import crear
-from tests.helpers import build_test_services
+from tests.helpers import authenticated_user, build_test_services
 
 
 def test_session_picker_only_allows_calendar_selection():
@@ -73,6 +73,69 @@ def test_student_search_delegates_the_selected_source_to_the_use_case():
     ]
     assert result.alumno is selected_student
     assert result.total_reprobadas == 1
+
+
+def test_normal_user_gets_read_only_candidate_copy():
+    assert crear._page_copy(authenticated_user(is_admin=False)) == (
+        "Consultar alumnos",
+        "Consulta alumnos inscritos o con materias reprobadas.",
+    )
+
+
+def test_administrator_keeps_ruling_creation_copy():
+    assert crear._page_copy(authenticated_user(is_admin=True)) == (
+        "Nuevo dictamen",
+        "Selecciona el tipo de alumno y captura los datos de la sesión.",
+    )
+
+
+def test_normal_user_keeps_query_controls_but_not_admin_controls():
+    query_controls = (
+        ft.Dropdown(key="dictamen-source"),
+        ft.TextField(key="dictamen-student-query"),
+        ft.TextField(key="dictamen-current-period"),
+        ft.Button("Buscar", key="dictamen-student-search"),
+        ft.Container(key="dictamen-student-result"),
+    )
+    admin_controls = (
+        ft.TextField(key="dictamen-director"),
+        ft.TextField(key="dictamen-session-date"),
+        ft.TextField(key="dictamen-text"),
+        ft.Button("Crear dictamen", key="dictamen-create"),
+    )
+
+    assert [control.key for control in query_controls] == [
+        "dictamen-source",
+        "dictamen-student-query",
+        "dictamen-current-period",
+        "dictamen-student-search",
+        "dictamen-student-result",
+    ]
+    assert crear._admin_controls(
+        authenticated_user(is_admin=False), admin_controls
+    ) == ()
+    assert crear._admin_controls(
+        authenticated_user(is_admin=True), admin_controls
+    ) == admin_controls
+
+
+def test_hidden_create_delegator_rejects_normal_user_before_controller_call():
+    auth_session = build_test_services(is_admin=False).auth_session
+    calls = []
+
+    class Controller:
+        async def create(self, **kwargs):
+            calls.append(kwargs)
+
+    services = SimpleNamespace(
+        auth_session=auth_session,
+        dictamen_controller=Controller(),
+    )
+
+    with pytest.raises(AuthorizationError):
+        asyncio.run(crear._create_dictamen(services, alumno=object()))
+
+    assert calls == []
 
 
 def test_search_guard_rejects_a_second_concurrent_operation():

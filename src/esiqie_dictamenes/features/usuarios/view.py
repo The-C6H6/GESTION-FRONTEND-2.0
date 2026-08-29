@@ -6,6 +6,22 @@ from esiqie_dictamenes.shared.components.feedback import feedback
 from esiqie_dictamenes.shared.components.page_header import page_header
 
 
+async def _register_user(
+    services,
+    username: str,
+    password: str,
+    confirmation: str,
+    is_admin: bool,
+) -> None:
+    services.auth_session.require_admin()
+    await services.user_controller.register(
+        username,
+        password,
+        confirmation,
+        is_admin,
+    )
+
+
 @ft.component
 def CreateUserView() -> ft.Control:
     context = use_app_context()
@@ -18,8 +34,12 @@ def CreateUserView() -> ft.Control:
 
     async def submit() -> None:
         try:
-            await context.services.user_controller.register(
-                username, password, confirmation, access == "admin"
+            await _register_user(
+                context.services,
+                username,
+                password,
+                confirmation,
+                access == "admin",
             )
             set_message("Usuario creado en modo demostración.")
             set_is_error(False)

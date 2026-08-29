@@ -8,6 +8,7 @@ from esiqie_dictamenes.core.context import AppContextValue
 from esiqie_dictamenes.core.errors import (
     ApiConnectionError,
     ApiTimeoutError,
+    AuthorizationError,
     NotFoundError,
     SessionExpiredError,
     ValidationError,
@@ -19,7 +20,7 @@ from esiqie_dictamenes.features.dictamenes.models import (
     DictamenPage,
 )
 from esiqie_dictamenes.features.dictamenes.views import buscar, eliminar
-from tests.helpers import build_test_services
+from tests.helpers import authenticated_user, build_test_services
 
 
 def _record(clave: str) -> Dictamen:
@@ -246,7 +247,13 @@ def test_delete_request_receives_only_selected_domain_entities():
 
     controller = Controller()
 
-    total = asyncio.run(eliminar._load_delete(controller, selected))
+    total = asyncio.run(
+        eliminar._load_delete(
+            controller,
+            selected,
+            require_admin=build_test_services().auth_session.require_admin,
+        )
+    )
 
     assert total == 2
     assert controller.received is selected
@@ -273,7 +280,11 @@ def test_delete_gate_rejects_a_second_concurrent_confirmation():
         busy_states = []
 
         async def operation():
-            await eliminar._load_delete(controller, selected)
+            await eliminar._load_delete(
+                controller,
+                selected,
+                require_admin=build_test_services().auth_session.require_admin,
+            )
 
         first = asyncio.create_task(
             buscar._run_guarded_request(gate, busy_states.append, operation)
@@ -393,6 +404,7 @@ def test_selection_actions_offer_modify_and_delete_without_immediate_request():
     calls = []
 
     actions = buscar._build_selection_actions(
+        authenticated_user(is_admin=True),
         busy=False,
         has_results=True,
         editing=False,
@@ -411,6 +423,7 @@ def test_selection_actions_offer_modify_and_delete_without_immediate_request():
 
 def test_delete_and_modify_actions_are_disabled_during_any_request():
     actions = buscar._build_selection_actions(
+        authenticated_user(is_admin=True),
         busy=True,
         has_results=True,
         editing=False,
@@ -420,3 +433,41 @@ def test_delete_and_modify_actions_are_disabled_during_any_request():
     )
 
     assert all(control.disabled for control in actions.controls)
+
+
+def test_normal_user_has_no_ruling_mutation_actions():
+    actions = buscar._build_selection_actions(
+        authenticated_user(is_admin=False),
+        busy=False,
+        has_results=True,
+        editing=False,
+        selected_count=2,
+        on_edit=lambda: None,
+        on_delete=lambda: None,
+    )
+
+    assert isinstance(actions, ft.Container)
+    assert actions.content is None
+
+
+def test_hidden_delete_delegator_rejects_normal_user_before_controller_call():
+    services = build_test_services(is_admin=False)
+    calls = []
+
+    class Controller:
+        async def delete_dictamenes(self, records):
+            calls.append(records)
+            return len(records)
+
+    selected = (_record("CSE-0001-26"),)
+
+    with pytest.raises(AuthorizationError):
+        asyncio.run(
+            eliminar._load_delete(
+                Controller(),
+                selected,
+                require_admin=services.auth_session.require_admin,
+            )
+        )
+
+    assert calls == []

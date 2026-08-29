@@ -16,7 +16,7 @@ from esiqie_dictamenes.core.errors import (
 from esiqie_dictamenes.core.routes import RoutePath
 from esiqie_dictamenes.features.dictamenes.models import Dictamen, DictamenPage
 from esiqie_dictamenes.features.dictamenes.views import buscar, modificar
-from tests.helpers import build_test_services
+from tests.helpers import authenticated_store, authenticated_user, build_test_services
 
 
 def _record(clave: str = "CSE-0001-26", text: str = "DICTAMEN ORIGINAL"):
@@ -78,6 +78,7 @@ def test_results_table_uses_selectable_rows_without_action_column():
 
     table_row = buscar._build_results_table(
         (record,),
+        authenticated_user(is_admin=True),
         selected_keys=frozenset((record.clave,)),
         busy=False,
         on_selection=lambda key, selected: changes.append((key, selected)),
@@ -102,6 +103,7 @@ def test_results_table_uses_selectable_rows_without_action_column():
 def test_results_cannot_change_selection_while_any_request_is_running():
     table_row = buscar._build_results_table(
         (_record(),),
+        authenticated_user(is_admin=True),
         selected_keys=frozenset(),
         busy=True,
         on_selection=lambda _key, _selected: None,
@@ -110,6 +112,47 @@ def test_results_cannot_change_selection_while_any_request_is_running():
     row = table_row.controls[0].rows[0]
     assert row.disabled is True
     assert row.on_select_change is None
+
+
+def test_normal_user_results_are_read_only_without_selection_callbacks():
+    calls = []
+    table_row = buscar._build_results_table(
+        (_record(),),
+        authenticated_user(is_admin=False),
+        selected_keys=frozenset((_record().clave,)),
+        busy=False,
+        on_selection=lambda key, selected: calls.append((key, selected)),
+    )
+    table = table_row.controls[0]
+    row = table.rows[0]
+
+    assert table.show_checkbox_column is False
+    assert row.selected is False
+    assert row.on_select_change is None
+    assert calls == []
+
+
+def test_admin_action_guard_runs_before_synchronous_state_change():
+    called = []
+
+    with pytest.raises(AuthorizationError):
+        buscar._run_admin_action(
+            authenticated_store(is_admin=False).require_admin,
+            lambda: called.append(True),
+        )
+
+    assert called == []
+
+
+def test_admin_action_guard_allows_synchronous_state_change_once():
+    called = []
+
+    buscar._run_admin_action(
+        authenticated_store(is_admin=True).require_admin,
+        lambda: called.append(True),
+    )
+
+    assert called == [True]
 
 
 def test_edit_form_has_read_only_metadata_and_only_one_text_field():
@@ -183,6 +226,7 @@ def test_update_commits_only_after_repository_success():
                 current,
                 "NUEVO CONTENIDO",
                 committed.append,
+                require_admin=authenticated_store().require_admin,
             )
         )
 
@@ -203,10 +247,37 @@ def test_unchanged_update_does_not_commit_a_false_success():
             current,
             "  DICTAMEN ORIGINAL  ",
             committed.append,
+            require_admin=authenticated_store().require_admin,
         )
     )
 
     assert changed is False
+    assert committed == []
+
+
+def test_hidden_update_delegator_rejects_normal_user_before_controller_or_commit():
+    calls = []
+    committed = []
+
+    class Controller:
+        async def update_dictaminacion(self, record, value):
+            calls.append((record, value))
+            return record
+
+    with pytest.raises(AuthorizationError):
+        asyncio.run(
+            buscar._load_update(
+                Controller(),
+                _record(),
+                "NUEVO CONTENIDO",
+                committed.append,
+                require_admin=authenticated_store(
+                    is_admin=False
+                ).require_admin,
+            )
+        )
+
+    assert calls == []
     assert committed == []
 
 

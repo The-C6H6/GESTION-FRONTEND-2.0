@@ -12,7 +12,7 @@ from esiqie_dictamenes.features.dictamenes.models import (
     DictamenPage,
 )
 from esiqie_dictamenes.features.dictamenes.views import buscar
-from tests.helpers import build_test_services
+from tests.helpers import authenticated_user, build_test_services
 
 
 @pytest.mark.parametrize(
@@ -174,6 +174,7 @@ def test_modify_selection_action_is_disabled_during_a_page_request():
     )
 
     actions = buscar._build_selection_actions(
+        authenticated_user(is_admin=True),
         busy=True,
         has_results=True,
         editing=False,
