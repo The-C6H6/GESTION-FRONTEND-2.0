@@ -14,6 +14,8 @@ def test_private_header_reports_one_real_authenticated_session_status() -> None:
     assert session is not None
 
     assert session_status_label(session) == (
-        "Acceso API · módulos restantes en demostración"
+        "Acceso API · registro y PDF en demostración"
     )
+    assert session.current_user is not None
+    assert session.current_user.username == "directivo"
     assert not hasattr(session, "is_" "demo")

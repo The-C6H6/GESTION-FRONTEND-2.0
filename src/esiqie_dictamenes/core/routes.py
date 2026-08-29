@@ -13,3 +13,10 @@ class RoutePath(StrEnum):
 
 def is_protected_route(path: str | RoutePath) -> bool:
     return str(path) != RoutePath.LOGIN
+
+
+def is_admin_route(path: str | RoutePath) -> bool:
+    return str(path) in {
+        RoutePath.ELIMINAR_DICTAMENES,
+        RoutePath.NUEVO_USUARIO,
+    }

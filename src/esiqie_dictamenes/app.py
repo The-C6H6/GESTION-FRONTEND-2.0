@@ -1,9 +1,10 @@
 import flet as ft
 
 from esiqie_dictamenes.core.context import AppContext, AppContextValue, use_app_context
-from esiqie_dictamenes.core.routes import RoutePath
+from esiqie_dictamenes.core.routes import RoutePath, is_admin_route
 from esiqie_dictamenes.core.services import build_services
 from esiqie_dictamenes.features.alumnos.views.inscritos import InscritoSearchView
+from esiqie_dictamenes.features.auth.models import Session
 from esiqie_dictamenes.features.auth.view import LoginView
 from esiqie_dictamenes.features.dashboard.view import DashboardView
 from esiqie_dictamenes.features.dictamenes.views.buscar import DictamenSearchView
@@ -12,16 +13,35 @@ from esiqie_dictamenes.features.usuarios.view import CreateUserView
 from esiqie_dictamenes.shared.components.app_shell import AppShell
 
 
+def _private_route_redirect(
+    path: str,
+    session: Session | None,
+) -> RoutePath | None:
+    if (
+        session is None
+        or session.current_user is None
+        or not session.current_user.is_active
+    ):
+        return RoutePath.LOGIN
+    if is_admin_route(path) and not session.current_user.is_admin:
+        return RoutePath.DASHBOARD
+    return None
+
+
 @ft.component
 def _private_layout() -> ft.Control:
     context = use_app_context()
+    redirect_target = _private_route_redirect(
+        ft.context.page.route,
+        context.session,
+    )
 
-    def redirect_to_login() -> None:
-        if context.session is None:
-            ft.context.page.navigate(RoutePath.LOGIN)
+    def redirect_private_route() -> None:
+        if redirect_target is not None:
+            ft.context.page.navigate(redirect_target)
 
-    ft.use_effect(redirect_to_login, [context.session])
-    if context.session is None:
+    ft.use_effect(redirect_private_route, [redirect_target])
+    if redirect_target is not None:
         return ft.Container(
             content=ft.ProgressRing(),
             alignment=ft.Alignment.CENTER,
