@@ -13,11 +13,11 @@ from esiqie_dictamenes.core.errors import (
     UnexpectedResponseError,
     ValidationError,
 )
+from esiqie_dictamenes.core.session import AuthSessionStore
 from esiqie_dictamenes.infrastructure.http.api_client import ApiClient
 from esiqie_dictamenes.infrastructure.http.reprobado_repository import (
     ApiReprobadoRepository,
 )
-from esiqie_dictamenes.infrastructure.http.token_store import AuthTokenStore
 from tests.helpers import api_settings
 
 
@@ -53,15 +53,15 @@ def paginated_response(*items):
 
 def _repository(handler, *, with_token=True):
     settings = api_settings()
-    tokens = AuthTokenStore()
+    store = AuthSessionStore()
     if with_token:
-        tokens.replace("access-secret", "refresh-secret")
+        store.begin("access-secret", "refresh-secret")
     client = ApiClient(
         settings,
-        tokens,
+        store,
         transport=httpx.MockTransport(handler),
     )
-    return ApiReprobadoRepository(client, settings.reprobado_path), tokens
+    return ApiReprobadoRepository(client, settings.reprobado_path), store
 
 
 def test_reprobado_repository_sends_boleta_as_query_and_maps_one_item():
@@ -182,28 +182,27 @@ def test_reprobado_repository_propagates_controlled_http_errors(
         asyncio.run(repository.search_reprobados(boleta="2022630000"))
 
 
-def test_reprobado_repository_clears_both_tokens_only_on_401():
-    repository, tokens = _repository(
+def test_reprobado_repository_clears_the_session_only_on_401():
+    repository, store = _repository(
         lambda request: httpx.Response(401, json={"detail": "expired"})
     )
 
     with pytest.raises(SessionExpiredError):
         asyncio.run(repository.search_reprobados(boleta="2022630000"))
 
-    assert tokens.access_token is None
-    assert tokens.has_tokens is False
+    assert store.current is None
 
 
-def test_reprobado_repository_keeps_tokens_on_403():
-    repository, tokens = _repository(
+def test_reprobado_repository_keeps_the_session_on_403():
+    repository, store = _repository(
         lambda request: httpx.Response(403, json={"detail": "inactive"})
     )
 
     with pytest.raises(AuthorizationError):
         asyncio.run(repository.search_reprobados(boleta="2022630000"))
 
-    assert tokens.access_token == "access-secret"
-    assert tokens.has_tokens is True
+    assert store.access_token == "access-secret"
+    assert store.current is not None
 
 
 @pytest.mark.parametrize(

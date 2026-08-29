@@ -14,10 +14,9 @@ from esiqie_dictamenes.core.errors import (
     ValidationError,
 )
 from esiqie_dictamenes.core.routes import RoutePath
-from esiqie_dictamenes.core.services import build_demo_services
-from esiqie_dictamenes.features.auth.models import Session
 from esiqie_dictamenes.features.dictamenes.models import Dictamen, DictamenPage
 from esiqie_dictamenes.features.dictamenes.views import buscar, modificar
+from tests.helpers import build_test_services
 
 
 def _record(clave: str = "CSE-0001-26", text: str = "DICTAMEN ORIGINAL"):
@@ -242,14 +241,15 @@ def test_update_guard_rejects_a_second_concurrent_save():
 
 
 def test_expired_update_session_clears_tokens_and_navigates_to_login():
-    services = build_demo_services()
-    services.auth_tokens.replace("expired-access", "expired-refresh")
+    services = build_test_services()
+    session = services.auth_session.current
+    assert session is not None
     session_updates = []
     routes = []
     cleared = []
     context = AppContextValue(
         services=services,
-        session=Session("directivo", is_admin=False, is_demo=False),
+        session=session,
         set_session=session_updates.append,
     )
 
@@ -261,7 +261,7 @@ def test_expired_update_session_clears_tokens_and_navigates_to_login():
     )
 
     assert message == ""
-    assert services.auth_tokens.has_tokens is False
+    assert services.auth_session.current is None
     assert session_updates == [None]
     assert routes == [RoutePath.LOGIN]
     assert cleared == []
@@ -271,7 +271,7 @@ def test_not_found_update_clears_selection_and_requests_refresh():
     cleared = []
 
     message = buscar._update_error_message(
-        build_demo_context(),
+        build_test_context(),
         NotFoundError(),
         lambda _route: None,
         lambda: cleared.append(True),
@@ -284,12 +284,13 @@ def test_not_found_update_clears_selection_and_requests_refresh():
 
 
 def test_forbidden_update_keeps_the_current_session():
-    services = build_demo_services()
-    services.auth_tokens.replace("access-token", "refresh-token")
+    services = build_test_services()
+    session = services.auth_session.current
+    assert session is not None
     session_updates = []
     context = AppContextValue(
         services=services,
-        session=Session("directivo", is_admin=False, is_demo=False),
+        session=session,
         set_session=session_updates.append,
     )
 
@@ -301,14 +302,14 @@ def test_forbidden_update_keeps_the_current_session():
     )
 
     assert "permiso" in message
-    assert services.auth_tokens.has_tokens is True
+    assert services.auth_session.current is session
     assert session_updates == []
 
 
 @pytest.mark.parametrize("error", [ApiTimeoutError(), ApiConnectionError()])
 def test_ambiguous_update_failure_does_not_invite_an_automatic_retry(error):
     message = buscar._update_error_message(
-        build_demo_context(),
+        build_test_context(),
         error,
         lambda _route: None,
         lambda: None,
@@ -320,9 +321,12 @@ def test_ambiguous_update_failure_does_not_invite_an_automatic_retry(error):
     )
 
 
-def build_demo_context():
+def build_test_context():
+    services = build_test_services()
+    session = services.auth_session.current
+    assert session is not None
     return AppContextValue(
-        services=build_demo_services(),
-        session=Session("directivo", is_admin=False, is_demo=True),
+        services=services,
+        session=session,
         set_session=lambda _session: None,
     )

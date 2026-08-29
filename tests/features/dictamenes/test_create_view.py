@@ -13,13 +13,12 @@ from esiqie_dictamenes.core.errors import (
     SessionExpiredError,
 )
 from esiqie_dictamenes.core.routes import RoutePath
-from esiqie_dictamenes.core.services import build_demo_services
 from esiqie_dictamenes.features.alumnos.views.reprobados import (
     eligible_subjects_table,
 )
-from esiqie_dictamenes.features.auth.models import Session
 from esiqie_dictamenes.features.dictamenes.models import MateriaElegible
 from esiqie_dictamenes.features.dictamenes.views import crear
+from tests.helpers import build_test_services
 
 
 def test_session_picker_only_allows_calendar_selection():
@@ -126,13 +125,14 @@ def test_search_guard_always_restores_loading_after_an_exception():
 
 
 def test_expired_session_clears_tokens_and_navigates_to_login():
-    services = build_demo_services()
-    services.auth_tokens.replace("expired-access", "expired-refresh")
+    services = build_test_services()
+    session = services.auth_session.current
+    assert session is not None
     session_updates = []
     routes = []
     context = AppContextValue(
         services=services,
-        session=Session("directivo", is_admin=False, is_demo=False),
+        session=session,
         set_session=session_updates.append,
     )
 
@@ -143,20 +143,20 @@ def test_expired_session_clears_tokens_and_navigates_to_login():
     )
 
     assert handled is True
-    assert services.auth_tokens.access_token is None
-    assert services.auth_tokens._refresh_token is None
+    assert services.auth_session.current is None
     assert session_updates == [None]
     assert routes == [RoutePath.LOGIN]
 
 
 def test_forbidden_response_preserves_the_current_session():
-    services = build_demo_services()
-    services.auth_tokens.replace("current-access", "current-refresh")
+    services = build_test_services()
+    session = services.auth_session.current
+    assert session is not None
     session_updates = []
     routes = []
     context = AppContextValue(
         services=services,
-        session=Session("directivo", is_admin=False, is_demo=False),
+        session=session,
         set_session=session_updates.append,
     )
 
@@ -167,7 +167,7 @@ def test_forbidden_response_preserves_the_current_session():
     )
 
     assert handled is False
-    assert services.auth_tokens.has_tokens is True
+    assert services.auth_session.current is session
     assert session_updates == []
     assert routes == []
 

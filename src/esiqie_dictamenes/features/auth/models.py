@@ -1,11 +1,23 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
-class Session:
+class AuthenticatedUser:
+    id: int
     username: str
+    is_active: bool
     is_admin: bool
-    is_demo: bool = False
+
+
+@dataclass
+class Session:
+    access_token: str = field(repr=False)
+    refresh_token: str = field(repr=False)
+    authenticated_user: AuthenticatedUser | None = None
+
+    @property
+    def current_user(self) -> AuthenticatedUser | None:
+        return self.authenticated_user
 
 
 @dataclass(frozen=True)

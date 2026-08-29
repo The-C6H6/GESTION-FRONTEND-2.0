@@ -10,11 +10,11 @@ from esiqie_dictamenes.core.errors import (
     SessionExpiredError,
     UnexpectedResponseError,
 )
+from esiqie_dictamenes.core.session import AuthSessionStore
 from esiqie_dictamenes.infrastructure.http.api_client import ApiClient
 from esiqie_dictamenes.infrastructure.http.inscrito_repository import (
     ApiInscritoRepository,
 )
-from esiqie_dictamenes.infrastructure.http.token_store import AuthTokenStore
 from tests.helpers import api_settings
 
 
@@ -53,15 +53,15 @@ INSCRITO_RESPONSE = {
 
 def _repository(handler, *, with_token=True):
     settings = api_settings()
-    tokens = AuthTokenStore()
+    store = AuthSessionStore()
     if with_token:
-        tokens.replace("access-token", "refresh-token")
+        store.begin("access-token", "refresh-token")
     client = ApiClient(
         settings,
-        tokens,
+        store,
         transport=httpx.MockTransport(handler),
     )
-    return ApiInscritoRepository(client, settings.inscrito_path), tokens
+    return ApiInscritoRepository(client, settings.inscrito_path), store
 
 
 def test_inscrito_repository_gets_and_maps_the_complete_api_contract():
@@ -120,12 +120,12 @@ def test_inscrito_repository_propagates_expired_sessions_and_clears_tokens():
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(401, json={"detail": "expired"})
 
-    repository, tokens = _repository(handler)
+    repository, store = _repository(handler)
 
     with pytest.raises(SessionExpiredError):
         asyncio.run(repository.get_inscrito("2022630000"))
 
-    assert tokens.access_token is None
+    assert store.current is None
 
 
 @pytest.mark.parametrize(

@@ -7,8 +7,6 @@ from esiqie_dictamenes.features.auth.models import Session
 
 
 def session_status_label(session: Session | None) -> str:
-    if session is not None and session.is_demo:
-        return "Modo demostración"
     return "Acceso API · módulos restantes en demostración"
 
 
@@ -68,7 +66,8 @@ def AppShell(content: ft.Control) -> ft.Control:
             spacing=8,
         ),
     )
-    username = context.session.username if context.session else ""
+    current_user = context.session.current_user if context.session else None
+    username = current_user.username if current_user else ""
     header = ft.Container(
         bgcolor="#FFFFFF",
         padding=ft.Padding.symmetric(horizontal=24, vertical=14),

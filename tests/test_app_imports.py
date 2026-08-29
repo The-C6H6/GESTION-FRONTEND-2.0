@@ -6,13 +6,14 @@ def test_application_composition_imports() -> None:
     assert main is not None
 
 
-def test_private_header_distinguishes_api_and_demo_sessions() -> None:
-    from esiqie_dictamenes.features.auth.models import Session
+def test_private_header_reports_one_real_authenticated_session_status() -> None:
     from esiqie_dictamenes.shared.components.app_shell import session_status_label
+    from tests.helpers import authenticated_store
 
-    assert session_status_label(Session("demo", True, is_demo=True)) == (
-        "Modo demostración"
-    )
-    assert session_status_label(Session("api", False, is_demo=False)) == (
+    session = authenticated_store().current
+    assert session is not None
+
+    assert session_status_label(session) == (
         "Acceso API · módulos restantes en demostración"
     )
+    assert not hasattr(session, "is_" "demo")

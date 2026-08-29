@@ -6,14 +6,13 @@ import pytest
 from esiqie_dictamenes.core.context import AppContextValue
 from esiqie_dictamenes.core.errors import SessionExpiredError, ValidationError
 from esiqie_dictamenes.core.routes import RoutePath
-from esiqie_dictamenes.core.services import build_demo_services
-from esiqie_dictamenes.features.auth.models import Session
 from esiqie_dictamenes.features.dictamenes.models import (
     Dictamen,
     DictamenFilter,
     DictamenPage,
 )
 from esiqie_dictamenes.features.dictamenes.views import buscar
+from tests.helpers import build_test_services
 
 
 @pytest.mark.parametrize(
@@ -128,13 +127,14 @@ def test_failed_page_request_does_not_commit_new_filter_page_or_results():
 
 
 def test_expired_search_session_clears_tokens_and_navigates_to_login():
-    services = build_demo_services()
-    services.auth_tokens.replace("expired-access", "expired-refresh")
+    services = build_test_services()
+    session = services.auth_session.current
+    assert session is not None
     session_updates = []
     routes = []
     context = AppContextValue(
         services=services,
-        session=Session("directivo", is_admin=False, is_demo=False),
+        session=session,
         set_session=session_updates.append,
     )
 
@@ -145,7 +145,7 @@ def test_expired_search_session_clears_tokens_and_navigates_to_login():
     )
 
     assert message == ""
-    assert services.auth_tokens.has_tokens is False
+    assert services.auth_session.current is None
     assert session_updates == [None]
     assert routes == [RoutePath.LOGIN]
 

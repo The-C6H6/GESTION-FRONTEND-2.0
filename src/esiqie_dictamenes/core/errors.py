@@ -49,6 +49,13 @@ class AuthenticationError(AppError):
         super().__init__("Usuario o contraseña incorrectos.")
 
 
+class InactiveUserError(AppError):
+    """Raised when valid credentials belong to an inactive account."""
+
+    def __init__(self) -> None:
+        super().__init__("La cuenta de usuario está inactiva.")
+
+
 class SessionExpiredError(AppError):
     """Raised when an authenticated API session is no longer valid."""
 

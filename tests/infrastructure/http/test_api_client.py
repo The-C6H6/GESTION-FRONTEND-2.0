@@ -16,15 +16,15 @@ from esiqie_dictamenes.core.errors import (
     UnexpectedResponseError,
     ValidationError,
 )
+from esiqie_dictamenes.core.session import AuthSessionStore
 from esiqie_dictamenes.infrastructure.http.api_client import ApiClient
-from esiqie_dictamenes.infrastructure.http.token_store import AuthTokenStore
 from tests.helpers import api_settings
 
 
-def _client(handler, tokens=None):
+def _client(handler, store=None):
     return ApiClient(
         api_settings(),
-        tokens or AuthTokenStore(),
+        store or AuthSessionStore(),
         transport=httpx.MockTransport(handler),
     )
 
@@ -38,11 +38,11 @@ def test_api_client_sends_json_and_bearer_token():
         assert json.loads(request.content) == {"value": 1}
         return httpx.Response(200, json={"ok": True})
 
-    tokens = AuthTokenStore()
-    tokens.replace("access-secret", "refresh-secret")
+    store = AuthSessionStore()
+    store.begin("access-secret", "refresh-secret")
 
     result = asyncio.run(
-        _client(handler, tokens).request_json(
+        _client(handler, store).request_json(
             "POST", "/resource", json={"value": 1}
         )
     )
@@ -87,6 +87,25 @@ def test_api_client_omits_authorization_without_a_token():
         return httpx.Response(200, json={"ok": True})
 
     result = asyncio.run(_client(handler).request_json("GET", "/resource"))
+
+    assert result == {"ok": True}
+
+
+def test_api_client_can_omit_authorization_with_an_existing_session():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert "Authorization" not in request.headers
+        return httpx.Response(200, json={"ok": True})
+
+    store = AuthSessionStore()
+    store.begin("access-secret", "refresh-secret")
+
+    result = asyncio.run(
+        _client(handler, store).request_json(
+            "POST",
+            "/api/auth/login",
+            authenticated=False,
+        )
+    )
 
     assert result == {"ok": True}
 
@@ -167,17 +186,17 @@ def test_api_client_maps_connection_failures():
         asyncio.run(_client(handler).request_json("GET", "/resource"))
 
 
-def test_api_client_clears_tokens_when_the_session_expires():
+def test_api_client_clears_the_session_when_it_expires():
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(401, json={"detail": "expired token"})
 
-    tokens = AuthTokenStore()
-    tokens.replace("expired-access", "expired-refresh")
+    store = AuthSessionStore()
+    store.begin("expired-access", "expired-refresh")
 
     with pytest.raises(SessionExpiredError):
-        asyncio.run(_client(handler, tokens).request_json("GET", "/resource"))
+        asyncio.run(_client(handler, store).request_json("GET", "/resource"))
 
-    assert tokens.access_token is None
+    assert store.current is None
 
 
 def test_api_client_maps_timeouts_separately():

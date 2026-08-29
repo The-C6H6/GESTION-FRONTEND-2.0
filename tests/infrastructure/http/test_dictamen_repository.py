@@ -16,6 +16,7 @@ from esiqie_dictamenes.core.errors import (
     UnexpectedResponseError,
     ValidationError,
 )
+from esiqie_dictamenes.core.session import AuthSessionStore
 from esiqie_dictamenes.features.dictamenes.models import (
     DictamenCreate,
     DictamenFilter,
@@ -25,7 +26,6 @@ from esiqie_dictamenes.infrastructure.http.api_client import ApiClient
 from esiqie_dictamenes.infrastructure.http.dictamen_repository import (
     ApiDictamenRepository,
 )
-from esiqie_dictamenes.infrastructure.http.token_store import AuthTokenStore
 from tests.helpers import api_settings
 
 
@@ -80,11 +80,11 @@ def _repository(
         dictamen_update_path=update_path,
         dictamen_delete_path=delete_path,
     )
-    tokens = AuthTokenStore()
-    tokens.replace("access-secret", "refresh-secret")
+    store = AuthSessionStore()
+    store.begin("access-secret", "refresh-secret")
     client = ApiClient(
         settings,
-        tokens,
+        store,
         transport=httpx.MockTransport(handler),
     )
     return (
@@ -95,7 +95,7 @@ def _repository(
             settings.dictamen_update_path,
             settings.dictamen_delete_path,
         ),
-        tokens,
+        store,
     )
 
 
@@ -642,15 +642,15 @@ def test_create_propagates_controlled_http_errors(status_code, expected_error):
         asyncio.run(repository.create(CREATE_PAYLOAD))
 
 
-def test_create_clears_both_tokens_on_401():
-    repository, tokens = _repository(
+def test_create_clears_the_session_on_401():
+    repository, store = _repository(
         lambda request: httpx.Response(401, json={"detail": "expired"})
     )
 
     with pytest.raises(SessionExpiredError):
         asyncio.run(repository.create(CREATE_PAYLOAD))
 
-    assert tokens.has_tokens is False
+    assert store.current is None
 
 
 @pytest.mark.parametrize(

@@ -15,7 +15,7 @@ from esiqie_dictamenes.core.errors import (
     ValidationError,
 )
 from esiqie_dictamenes.core.settings import ApiSettings
-from esiqie_dictamenes.infrastructure.http.token_store import AuthTokenStore
+from esiqie_dictamenes.core.session import AuthSessionStore
 
 logger = logging.getLogger(__name__)
 
@@ -24,12 +24,12 @@ class ApiClient:
     def __init__(
         self,
         settings: ApiSettings,
-        tokens: AuthTokenStore,
+        session: AuthSessionStore,
         *,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self._settings = settings
-        self._tokens = tokens
+        self._session = session
         self._transport = transport
 
     async def request_json(
@@ -40,10 +40,11 @@ class ApiClient:
         json: object | None = None,
         params: Mapping[str, str | int] | None = None,
         expected_status: int | None = None,
+        authenticated: bool = True,
     ) -> object:
         headers = {"Accept": "application/json"}
-        if self._tokens.access_token is not None:
-            headers["Authorization"] = f"Bearer {self._tokens.access_token}"
+        if authenticated and self._session.access_token is not None:
+            headers["Authorization"] = f"Bearer {self._session.access_token}"
 
         try:
             async with httpx.AsyncClient(
@@ -90,7 +91,7 @@ class ApiClient:
         if status_code < 400:
             return
         if status_code == 401:
-            self._tokens.clear()
+            self._session.clear()
             raise SessionExpiredError()
         if status_code == 400:
             raise BadRequestError(self._safe_error_detail(response))

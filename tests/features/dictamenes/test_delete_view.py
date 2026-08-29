@@ -13,14 +13,13 @@ from esiqie_dictamenes.core.errors import (
     ValidationError,
 )
 from esiqie_dictamenes.core.routes import RoutePath
-from esiqie_dictamenes.core.services import build_demo_services
-from esiqie_dictamenes.features.auth.models import Session
 from esiqie_dictamenes.features.dictamenes.models import (
     Dictamen,
     DictamenFilter,
     DictamenPage,
 )
 from esiqie_dictamenes.features.dictamenes.views import buscar, eliminar
+from tests.helpers import build_test_services
 
 
 def _record(clave: str) -> Dictamen:
@@ -44,9 +43,12 @@ def _descendants(control):
 
 
 def _context():
+    services = build_test_services()
+    session = services.auth_session.current
+    assert session is not None
     return AppContextValue(
-        services=build_demo_services(),
-        session=Session("directivo", is_admin=False, is_demo=True),
+        services=services,
+        session=session,
         set_session=lambda _session: None,
     )
 
@@ -339,13 +341,14 @@ def test_not_found_delete_clears_stale_selection_without_assuming_success():
 
 
 def test_expired_delete_session_clears_tokens_and_redirects_to_login():
-    services = build_demo_services()
-    services.auth_tokens.replace("expired-access", "expired-refresh")
+    services = build_test_services()
+    session = services.auth_session.current
+    assert session is not None
     session_updates = []
     routes = []
     context = AppContextValue(
         services=services,
-        session=Session("directivo", is_admin=False, is_demo=False),
+        session=session,
         set_session=session_updates.append,
     )
 
@@ -357,7 +360,7 @@ def test_expired_delete_session_clears_tokens_and_redirects_to_login():
     )
 
     assert message == ""
-    assert services.auth_tokens.has_tokens is False
+    assert services.auth_session.current is None
     assert session_updates == [None]
     assert routes == [RoutePath.LOGIN]
 
