@@ -44,11 +44,12 @@ def build_test_services(*, is_admin: bool = True) -> AppServices:
     auth_session = authenticated_store(is_admin=is_admin)
     return AppServices(
         auth_controller=AuthController(login_repository),
-        user_controller=UserController(user_repository),
+        user_controller=UserController(user_repository, auth_session.require_admin),
         dictamen_controller=DictamenController(
             dictamen_repository,
             alumno_repository,
             pdf_generator,
+            require_admin=auth_session.require_admin,
         ),
         alumno_controller=AlumnoController(alumno_repository),
         auth_repository=login_repository,

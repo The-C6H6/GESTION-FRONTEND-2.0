@@ -73,11 +73,12 @@ def build_services(
     )
     return AppServices(
         auth_controller=AuthController(auth_repository),
-        user_controller=UserController(user_repository),
+        user_controller=UserController(user_repository, auth_session.require_admin),
         dictamen_controller=DictamenController(
             dictamen_repository,
             inscrito_repository,
             pdf_generator,
+            require_admin=auth_session.require_admin,
             reprobado_repository=reprobado_repository,
             create_repository=api_dictamen_repository,
             search_repository=api_dictamen_repository,

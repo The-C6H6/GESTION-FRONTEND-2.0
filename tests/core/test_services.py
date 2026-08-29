@@ -4,6 +4,7 @@ from datetime import date
 import httpx
 import pytest
 
+from esiqie_dictamenes.core.errors import AuthorizationError
 from esiqie_dictamenes.core.services import build_services
 from esiqie_dictamenes.features.dictamenes.models import Dictamen, DictamenFilter
 from tests.helpers import api_settings, build_test_services
@@ -61,13 +62,24 @@ def test_production_services_establish_the_api_identity_and_shared_session():
 
 
 def test_production_services_keep_user_registration_in_demo_mode():
-    def reject_network(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/auth/login":
+            return httpx.Response(
+                200,
+                json={
+                    "access_token": "shared-access",
+                    "refresh_token": "shared-refresh",
+                },
+            )
+        if request.url.path == "/api/auth/me":
+            return httpx.Response(200, json=AUTH_ME_RESPONSE)
         raise AssertionError("User registration must not call the API yet.")
 
     services = build_services(
         settings=api_settings(),
-        transport=httpx.MockTransport(reject_network),
+        transport=httpx.MockTransport(handler),
     )
+    asyncio.run(services.auth_controller.login("directivo", "secreto"))
 
     user = asyncio.run(
         services.user_controller.register(
@@ -80,6 +92,98 @@ def test_production_services_keep_user_registration_in_demo_mode():
 
     assert user.username == "nuevo"
     assert user.is_admin is True
+
+
+def test_normal_production_session_keeps_queries_and_blocks_every_mutation():
+    requests = []
+    normal_identity = {**AUTH_ME_RESPONSE, "username": "consulta", "is_admin": False}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append((request.method, request.url.path))
+        if request.url.path == "/api/auth/login":
+            return httpx.Response(
+                200,
+                json={
+                    "access_token": "shared-access",
+                    "refresh_token": "shared-refresh",
+                },
+            )
+        if request.url.path == "/api/auth/me":
+            return httpx.Response(200, json=normal_identity)
+        if request.url.path == "/api/inscritos/2022630000":
+            return httpx.Response(200, json=INSCRITO_RESPONSE)
+        if request.url.path == "/api/reprobados":
+            return httpx.Response(200, json=paginated_response(REPROBADO_ITEM))
+        if request.url.path == "/api/dictaminaciones" and request.method == "GET":
+            return httpx.Response(
+                200,
+                json={
+                    "total": 1,
+                    "skip": 0,
+                    "limit": 100,
+                    "items": [CREATED_RESPONSE],
+                },
+            )
+        raise AssertionError("A normal user must not reach an API mutation.")
+
+    services = build_services(
+        settings=api_settings(),
+        transport=httpx.MockTransport(handler),
+    )
+    session = asyncio.run(services.auth_controller.login("consulta", "secreto"))
+    alumno = asyncio.run(services.alumno_controller.find_inscrito("2022630000"))
+    failed_candidate = asyncio.run(
+        services.dictamen_controller.find_student_candidate(
+            "reprobado", "2022630000", "20262"
+        )
+    )
+    page = asyncio.run(
+        services.dictamen_controller.search_page(
+            DictamenFilter(anio=2026),
+            page=1,
+        )
+    )
+    current = page.items[0]
+
+    assert session.current_user is not None
+    assert session.current_user.is_admin is False
+    assert alumno.boleta == "2022630000"
+    assert failed_candidate.total_reprobadas == 1
+    assert page.total == 1
+
+    with pytest.raises(AuthorizationError):
+        asyncio.run(
+            services.user_controller.register(
+                "nuevo", "secreto", "secreto", False
+            )
+        )
+    with pytest.raises(AuthorizationError):
+        asyncio.run(
+            services.dictamen_controller.create(
+                alumno=alumno,
+                dictaminacion="CONTENIDO CONFIDENCIAL DEL DICTAMEN",
+                director="Dirección ESIQIE",
+                materias=(),
+                reference=date(2026, 8, 29),
+                fecha_sesion=date(2026, 12, 11),
+            )
+        )
+    with pytest.raises(AuthorizationError):
+        asyncio.run(
+            services.dictamen_controller.update_dictaminacion(
+                current, "DICTAMEN ACTUALIZADO"
+            )
+        )
+    with pytest.raises(AuthorizationError):
+        asyncio.run(services.dictamen_controller.delete_dictamenes((current,)))
+
+    assert requests == [
+        ("POST", "/api/auth/login"),
+        ("GET", "/api/auth/me"),
+        ("GET", "/api/inscritos/2022630000"),
+        ("GET", "/api/reprobados"),
+        ("GET", "/api/dictaminaciones"),
+    ]
 
 
 def test_services_clear_the_whole_session_on_logout():

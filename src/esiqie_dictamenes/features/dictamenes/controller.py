@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date
 
@@ -61,6 +61,8 @@ class DictamenController:
         repository: DictamenRepository,
         alumno_repository: InscritoRepository,
         pdf_generator: PdfGenerator,
+        *,
+        require_admin: Callable[[], None],
         reprobado_repository: ReprobadoRepository | None = None,
         create_repository: DictamenCreateRepository | None = None,
         search_repository: DictamenSearchRepository | None = None,
@@ -75,6 +77,7 @@ class DictamenController:
         self._update_repository = update_repository or repository
         self._delete_repository = delete_repository or repository
         self._pdf_generator = pdf_generator
+        self._require_admin = require_admin
 
     async def find_student_candidate(
         self,
@@ -171,6 +174,10 @@ class DictamenController:
         return await self._repository.get(clave)
 
     async def update(self, clave: str, dictaminacion: str) -> Dictamen:
+        self._require_admin()
+        return await self._update(clave, dictaminacion)
+
+    async def _update(self, clave: str, dictaminacion: str) -> Dictamen:
         normalized = dictaminacion.strip()
         if not normalized:
             raise ValidationError("Escribe la nueva dictaminación.")
@@ -181,6 +188,7 @@ class DictamenController:
         current: Dictamen,
         dictaminacion: object,
     ) -> Dictamen:
+        self._require_admin()
         if not isinstance(dictaminacion, str) or not dictaminacion.strip():
             raise ValidationError("La dictaminación no puede estar vacía.")
         normalized = dictaminacion.strip()
@@ -212,7 +220,8 @@ class DictamenController:
     async def update_and_generate(
         self, clave: str, dictaminacion: str
     ) -> UpdatedDictamen:
-        dictamen = await self.update(clave, dictaminacion)
+        self._require_admin()
+        dictamen = await self._update(clave, dictaminacion)
         request = PdfRequest(
             dictamen=dictamen,
             director="Dirección ESIQIE",
@@ -230,6 +239,7 @@ class DictamenController:
         reference: date,
         fecha_sesion: date,
     ) -> CreatedDictamen:
+        self._require_admin()
         if not dictaminacion.strip() or not director.strip():
             raise ValidationError("Director y dictaminación son obligatorios.")
         if not isinstance(fecha_sesion, date):
@@ -251,6 +261,7 @@ class DictamenController:
         return CreatedDictamen(dictamen, payload, pdf_request)
 
     async def delete_dictamenes(self, dictamenes: Sequence[Dictamen]) -> int:
+        self._require_admin()
         if not dictamenes:
             raise ValidationError("Selecciona al menos un dictamen.")
         claves = tuple(dict.fromkeys(dictamen.clave for dictamen in dictamenes))
