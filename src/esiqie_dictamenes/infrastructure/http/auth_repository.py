@@ -33,6 +33,7 @@ class ApiAuthRepository:
                 self._login_path,
                 json={"username": username, "password": password},
                 authenticated=False,
+                allow_refresh=False,
             )
         except SessionExpiredError as error:
             self._store.clear()

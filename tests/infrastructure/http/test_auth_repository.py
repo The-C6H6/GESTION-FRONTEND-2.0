@@ -229,3 +229,103 @@ def test_invalid_login_clears_previous_session_and_never_calls_auth_me():
     assert [request.url.path for request in requests] == ["/api/auth/login"]
     assert "Authorization" not in requests[0].headers
     assert store.current is None
+
+
+def test_api_login_refreshes_once_when_the_pending_access_token_expires():
+    requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path == "/api/auth/login":
+            return httpx.Response(
+                200,
+                json={
+                    "access_token": "old-access",
+                    "refresh_token": "old-refresh",
+                },
+            )
+        if request.url.path == "/api/auth/refresh":
+            assert "Authorization" not in request.headers
+            assert json.loads(request.content) == {
+                "refresh_token": "old-refresh"
+            }
+            return httpx.Response(
+                200,
+                json={
+                    "access_token": "new-access",
+                    "refresh_token": "new-refresh",
+                },
+            )
+        if request.headers["Authorization"] == "Bearer old-access":
+            return httpx.Response(401)
+        assert request.headers["Authorization"] == "Bearer new-access"
+        return httpx.Response(
+            200,
+            json={
+                "id": 7,
+                "username": "refreshed-user",
+                "is_active": True,
+                "is_admin": False,
+            },
+        )
+
+    repository, store = repository_and_store(handler)
+
+    session = asyncio.run(repository.login("directivo", "secreto"))
+
+    assert [request.url.path for request in requests] == [
+        "/api/auth/login",
+        "/api/auth/me",
+        "/api/auth/refresh",
+        "/api/auth/me",
+    ]
+    assert session is store.current
+    assert session.access_token == "new-access"
+    assert session.refresh_token == "new-refresh"
+    assert session.current_user is not None
+    assert session.current_user.username == "refreshed-user"
+
+
+@pytest.mark.parametrize(
+    ("refresh_result", "expected_error"),
+    [
+        ("timeout", ApiTimeoutError),
+        ("connection", ApiConnectionError),
+        ("service-unavailable", ServiceUnavailableError),
+    ],
+)
+def test_api_login_clears_the_pending_session_after_transient_refresh_failure(
+    refresh_result,
+    expected_error,
+):
+    requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path == "/api/auth/login":
+            return httpx.Response(
+                200,
+                json={
+                    "access_token": "old-access",
+                    "refresh_token": "old-refresh",
+                },
+            )
+        if request.url.path == "/api/auth/me":
+            return httpx.Response(401)
+        if refresh_result == "timeout":
+            raise httpx.ReadTimeout("slow refresh", request=request)
+        if refresh_result == "connection":
+            raise httpx.ConnectError("failed refresh", request=request)
+        return httpx.Response(503)
+
+    repository, store = repository_and_store(handler)
+
+    with pytest.raises(expected_error):
+        asyncio.run(repository.login("directivo", "secreto"))
+
+    assert [request.url.path for request in requests] == [
+        "/api/auth/login",
+        "/api/auth/me",
+        "/api/auth/refresh",
+    ]
+    assert store.current is None
