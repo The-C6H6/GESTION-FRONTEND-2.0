@@ -7,7 +7,7 @@ from esiqie_dictamenes.features.auth.models import AuthenticatedUser, Session
 
 
 def session_status_label(session: Session | None) -> str:
-    return "Acceso API · registro y PDF en demostración"
+    return "Acceso API · PDF en demostración"
 
 
 def _navigation_items(
