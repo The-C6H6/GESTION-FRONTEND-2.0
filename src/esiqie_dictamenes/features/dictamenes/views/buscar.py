@@ -19,7 +19,6 @@ from esiqie_dictamenes.features.dictamenes.models import (
     DictamenPage,
 )
 from esiqie_dictamenes.features.dictamenes.views.crear import (
-    _RequestGate,
     _run_guarded_request,
 )
 from esiqie_dictamenes.features.dictamenes.views.eliminar import (
@@ -34,6 +33,7 @@ from esiqie_dictamenes.features.dictamenes.views.eliminar import (
 from esiqie_dictamenes.features.dictamenes.views.modificar import _build_edit_form
 from esiqie_dictamenes.shared.components.feedback import feedback
 from esiqie_dictamenes.shared.components.page_header import page_header
+from esiqie_dictamenes.shared.request_gate import RequestGate as _RequestGate
 
 
 def _build_filter(criterion: str, query: str) -> DictamenFilter:

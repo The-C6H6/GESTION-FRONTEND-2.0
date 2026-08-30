@@ -16,20 +16,7 @@ from esiqie_dictamenes.features.dictamenes.periodos import current_period
 from esiqie_dictamenes.features.alumnos.views.reprobados import eligible_subjects_table
 from esiqie_dictamenes.shared.components.feedback import feedback
 from esiqie_dictamenes.shared.components.page_header import page_header
-
-
-class _RequestGate:
-    def __init__(self) -> None:
-        self.active = False
-
-    def enter(self) -> bool:
-        if self.active:
-            return False
-        self.active = True
-        return True
-
-    def leave(self) -> None:
-        self.active = False
+from esiqie_dictamenes.shared.request_gate import RequestGate as _RequestGate
 
 
 def _page_copy(user: AuthenticatedUser) -> tuple[str, str]:
