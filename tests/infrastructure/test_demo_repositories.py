@@ -3,18 +3,6 @@ import asyncio
 from esiqie_dictamenes.features.dictamenes.models import DictamenFilter, DictamenUpdate
 from esiqie_dictamenes.infrastructure.demo.alumno_repository import DemoAlumnoRepository
 from esiqie_dictamenes.infrastructure.demo.dictamen_repository import DemoDictamenRepository
-from esiqie_dictamenes.infrastructure.demo.user_repository import DemoUserRepository
-
-
-def test_demo_user_repository_supports_registration_without_demo_login():
-    repository = DemoUserRepository()
-
-    user = asyncio.run(repository.register("nuevo", "secreto", True))
-
-    assert user.username == "nuevo"
-    assert user.is_admin is True
-    assert repository.registered_users == [user]
-    assert not hasattr(repository, "login")
 
 
 def test_dictamen_search_preserves_multiple_records_for_one_student():

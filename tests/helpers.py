@@ -3,7 +3,11 @@ from esiqie_dictamenes.core.services import AppServices
 from esiqie_dictamenes.core.session import AuthSessionStore
 from esiqie_dictamenes.features.alumnos.controller import AlumnoController
 from esiqie_dictamenes.features.auth.controller import AuthController
-from esiqie_dictamenes.features.auth.models import AuthenticatedUser, Session
+from esiqie_dictamenes.features.auth.models import (
+    AuthenticatedUser,
+    RegisteredUser,
+    Session,
+)
 from esiqie_dictamenes.features.dictamenes.controller import DictamenController
 from esiqie_dictamenes.features.usuarios.controller import UserController
 from esiqie_dictamenes.infrastructure.demo.alumno_repository import DemoAlumnoRepository
@@ -11,7 +15,6 @@ from esiqie_dictamenes.infrastructure.demo.dictamen_repository import (
     DemoDictamenRepository,
 )
 from esiqie_dictamenes.infrastructure.demo.pdf_generator import DemoPdfGenerator
-from esiqie_dictamenes.infrastructure.demo.user_repository import DemoUserRepository
 
 
 def authenticated_user(*, is_admin: bool = True) -> AuthenticatedUser:
@@ -35,9 +38,24 @@ class RejectingLoginRepository:
         raise AssertionError("Test services do not provide demo authentication.")
 
 
+class RecordingUserRepository:
+    def __init__(self) -> None:
+        self.registered_users: list[RegisteredUser] = []
+
+    async def register(
+        self,
+        username: str,
+        password: str,
+        is_admin: bool,
+    ) -> RegisteredUser:
+        user = RegisteredUser(username=username, is_admin=is_admin)
+        self.registered_users.append(user)
+        return user
+
+
 def build_test_services(*, is_admin: bool = True) -> AppServices:
     login_repository = RejectingLoginRepository()
-    user_repository = DemoUserRepository()
+    user_repository = RecordingUserRepository()
     alumno_repository = DemoAlumnoRepository()
     dictamen_repository = DemoDictamenRepository()
     pdf_generator = DemoPdfGenerator()

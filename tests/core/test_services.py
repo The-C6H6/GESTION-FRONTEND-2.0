@@ -1,4 +1,5 @@
 import asyncio
+import json
 from datetime import date
 
 import httpx
@@ -14,6 +15,7 @@ from tests.infrastructure.http.test_reprobado_repository import (
     paginated_response,
 )
 from tests.infrastructure.http.test_dictamen_repository import CREATED_RESPONSE
+from tests.infrastructure.http.test_user_repository import REGISTER_RESPONSE
 
 
 AUTH_ME_RESPONSE = {
@@ -61,8 +63,11 @@ def test_production_services_establish_the_api_identity_and_shared_session():
     assert services.auth_session.access_token == "access-token"
 
 
-def test_production_services_keep_user_registration_in_demo_mode():
+def test_production_services_register_users_through_the_shared_api_client():
+    requests = []
+
     def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
         if request.url.path == "/api/auth/login":
             return httpx.Response(
                 200,
@@ -73,7 +78,15 @@ def test_production_services_keep_user_registration_in_demo_mode():
             )
         if request.url.path == "/api/auth/me":
             return httpx.Response(200, json=AUTH_ME_RESPONSE)
-        raise AssertionError("User registration must not call the API yet.")
+        assert request.url.path == "/api/auth/register"
+        assert request.headers["Authorization"] == "Bearer shared-access"
+        return httpx.Response(
+            201,
+            json={
+                **REGISTER_RESPONSE,
+                "user": {**REGISTER_RESPONSE["user"], "is_admin": True},
+            },
+        )
 
     services = build_services(
         settings=api_settings(),
@@ -92,6 +105,16 @@ def test_production_services_keep_user_registration_in_demo_mode():
 
     assert user.username == "nuevo"
     assert user.is_admin is True
+    assert [(request.method, request.url.path) for request in requests] == [
+        ("POST", "/api/auth/login"),
+        ("GET", "/api/auth/me"),
+        ("POST", "/api/auth/register"),
+    ]
+    assert json.loads(requests[-1].content) == {
+        "username": "nuevo",
+        "password": "secreto",
+        "is_admin": True,
+    }
 
 
 def test_normal_production_session_keeps_queries_and_blocks_every_mutation():
