@@ -1,6 +1,6 @@
 # ESIQIE-DICTÁMENES
 
-Frontend Flet para gestionar dictámenes de estudiantes de ESIQIE. La autenticación, la consulta de alumnos inscritos, sus materias reprobadas, y la creación, búsqueda paginada, modificación y eliminación de dictámenes consumen la API real. El registro de usuarios y la generación PDF continúan con adaptadores de demostración; la autenticación nunca recurre a datos demo.
+Frontend Flet para gestionar dictámenes de estudiantes de ESIQIE. La autenticación, el registro de usuarios, la consulta de alumnos inscritos, sus materias reprobadas, y la creación, búsqueda paginada, modificación y eliminación de dictámenes consumen la API real. Solo la generación PDF continúa con un adaptador de demostración; la autenticación nunca recurre a datos demo.
 
 ## Requisitos
 
@@ -25,6 +25,7 @@ La ejecución local carga `.env` mediante `python-dotenv`. Debe definir:
 - `RUTA_LOGIN`;
 - `RUTA_AUTENTICACION`, para la identidad autenticada de `/api/auth/me`;
 - `RUTA_REFRESH`, para renovar la sesión mediante `/api/auth/refresh`;
+- `RUTA_NUEVO_USUARIO`, para registrar usuarios mediante `/api/auth/register`;
 - `RUTA_VISUALIZAR_INSCRITOS`, con el marcador `{boleta}`;
 - `RUTA_REPROBADOS`, como ruta relativa sin parámetros, query ni fragmento;
 - `RUTA_GENERAR_DICTAMEN`, como ruta relativa sin parámetros, query, fragmento ni marcadores.
@@ -55,6 +56,7 @@ Abre `http://127.0.0.1:8501`. El backend configurado debe estar disponible para 
 - Un refresh rechazado, inválido o seguido por otro `401` elimina la sesión completa. Un timeout, fallo de conexión o error `5xx` durante el refresh conserva una sesión ya establecida para que una operación posterior pueda intentarlo de nuevo.
 - Si la sesión cambia mientras una renovación está en curso, la operación anterior se descarta sin reutilizar ni borrar la sesión nueva.
 - Búsqueda de inscritos, consulta paginada de materias reprobadas, y creación, búsqueda paginada, modificación y eliminación de dictámenes mediante API.
+- Registro real de usuarios estándar o administradores mediante `POST /api/auth/register`. Solo un administrador autenticado puede ejecutarlo; el formulario exige contraseñas de al menos seis caracteres, bloquea envíos concurrentes, presenta errores controlados y limpia las contraseñas después de un `201` válido.
 - La búsqueda real de dictámenes admite únicamente número de boleta o año, usa páginas del servidor de 100 registros y conserva el último resultado correcto si falla una navegación.
 - La modificación exige seleccionar exactamente un resultado, permite editar solo `Dictaminación` y conserva el filtro, la página y los demás registros tras un `PUT` correcto.
 - La eliminación admite uno o varios resultados seleccionados, exige confirmación explícita y envía únicamente sus claves en un `DELETE` bulk. Tras el éxito vuelve a consultar el filtro y retrocede a la última página válida cuando es necesario.
@@ -63,6 +65,5 @@ Abre `http://127.0.0.1:8501`. El backend configurado debe estar disponible para 
 - Cierre de sesión manual, navegación privada y página 404. Una expiración terminal también invalida el área privada y vuelve al login, mientras un `403` conserva la sesión y muestra un error controlado.
 - Preparación separada del contexto PDF, incluido el nombre del director, sin generar todavía un archivo real después de crear el dictamen.
 - Presentación de los datos académicos del inscrito y selección automática de materias reprobadas elegibles obtenidas de la API.
-- Registro simulado de usuarios estándar o administradores, protegido para administradores autenticados.
 
 La arquitectura y los límites están en [docs/architecture.md](docs/architecture.md). Los wireframes acordados están en [docs/ui-wireframes.md](docs/ui-wireframes.md).
