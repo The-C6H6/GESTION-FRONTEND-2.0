@@ -8,6 +8,7 @@ def valid_environment():
     return {
         "API_BASE_URL": "http://api.test",
         "RUTA_LOGIN": "/api/auth/login",
+        "RUTA_NUEVO_USUARIO": "/api/auth/register",
         "RUTA_AUTENTICACION": "/api/auth/me",
         "RUTA_REFRESH": "/api/auth/refresh",
         "RUTA_VISUALIZAR_INSCRITOS": "/api/inscritos/{boleta}",
@@ -23,6 +24,7 @@ def test_settings_repr_excludes_api_url_and_paths():
     settings = ApiSettings(
         base_url="https://private-api.test",
         login_path="/private/login",
+        register_path="/private/register",
         auth_me_path="/private/me",
         refresh_path="/private/refresh",
         inscrito_path="/private/inscritos/{boleta}",
@@ -37,6 +39,7 @@ def test_settings_repr_excludes_api_url_and_paths():
 
     assert "https://private-api.test" not in settings_repr
     assert "/private/login" not in settings_repr
+    assert "/private/register" not in settings_repr
     assert "/private/me" not in settings_repr
     assert "/private/refresh" not in settings_repr
     assert "/private/inscritos/{boleta}" not in settings_repr
@@ -53,6 +56,7 @@ def test_settings_load_api_base_url_and_login_path():
 
     assert settings.base_url == "http://api.test"
     assert settings.login_path == "/api/auth/login"
+    assert settings.register_path == "/api/auth/register"
     assert settings.auth_me_path == "/api/auth/me"
     assert settings.refresh_path == "/api/auth/refresh"
     assert settings.inscrito_path == "/api/inscritos/{boleta}"
@@ -89,6 +93,7 @@ def test_settings_accept_legacy_ip_address():
     [
         "base_url",
         "login_path",
+        "register_path",
         "auth_me_path",
         "refresh_path",
         "inscrito_path",
@@ -103,6 +108,7 @@ def test_settings_reject_incomplete_configuration(missing):
     keys = {
         "base_url": "API_BASE_URL",
         "login_path": "RUTA_LOGIN",
+        "register_path": "RUTA_NUEVO_USUARIO",
         "auth_me_path": "RUTA_AUTENTICACION",
         "refresh_path": "RUTA_REFRESH",
         "inscrito_path": "RUTA_VISUALIZAR_INSCRITOS",
@@ -137,6 +143,24 @@ def test_settings_reject_invalid_authentication_paths(key, invalid_path):
     values[key] = invalid_path
 
     with pytest.raises(ConfigurationError, match="autenticaci|renovaci"):
+        load_api_settings(values)
+
+
+@pytest.mark.parametrize(
+    "invalid_path",
+    [
+        "api/auth/register",
+        "https://api.test/api/auth/register",
+        "/api/auth/register?notify=true",
+        "/api/auth/register#form",
+        "/api/auth/{username}",
+    ],
+)
+def test_settings_reject_invalid_registration_path(invalid_path):
+    values = valid_environment()
+    values["RUTA_NUEVO_USUARIO"] = invalid_path
+
+    with pytest.raises(ConfigurationError, match="ruta de registro"):
         load_api_settings(values)
 
 

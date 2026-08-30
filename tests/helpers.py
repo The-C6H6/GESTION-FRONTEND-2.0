@@ -62,6 +62,7 @@ def api_settings(**overrides) -> ApiSettings:
     values = {
         "base_url": "http://api.test",
         "login_path": "/api/auth/login",
+        "register_path": "/api/auth/register",
         "auth_me_path": "/api/auth/me",
         "refresh_path": "/api/auth/refresh",
         "inscrito_path": "/api/inscritos/{boleta}",
