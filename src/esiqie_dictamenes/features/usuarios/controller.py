@@ -25,6 +25,10 @@ class UserController:
         self._require_admin()
         if not username.strip() or not password:
             raise ValidationError("Usuario y contraseña son obligatorios.")
+        if len(password) < 6:
+            raise ValidationError(
+                "La contraseña debe tener al menos 6 caracteres."
+            )
         if password != password_confirmation:
             raise ValidationError("Las contraseñas no coinciden.")
         return await self._repository.register(username.strip(), password, is_admin)

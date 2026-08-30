@@ -307,6 +307,42 @@ def test_failed_registration_restores_submit_and_preserves_form_values():
     assert error_states == [True]
 
 
+def test_short_password_explains_minimum_without_reaching_repository():
+    repository = RecordingUserRepository()
+    store = authenticated_store()
+    services = SimpleNamespace(
+        auth_session=store,
+        user_controller=UserController(repository, store.require_admin),
+    )
+    passwords = []
+    confirmations = []
+    messages = []
+    error_states = []
+
+    result = asyncio.run(
+        usuarios_view._submit_registration(
+            gate=RequestGate(),
+            services=services,
+            username="nuevo",
+            password="123",
+            confirmation="123",
+            access="standard",
+            set_loading=lambda value: None,
+            set_password=passwords.append,
+            set_confirmation=confirmations.append,
+            set_message=messages.append,
+            set_is_error=error_states.append,
+        )
+    )
+
+    assert result is False
+    assert repository.registered_users == []
+    assert passwords == []
+    assert confirmations == []
+    assert messages == ["La contraseña debe tener al menos 6 caracteres."]
+    assert error_states == [True]
+
+
 def test_invalid_access_never_reaches_registration_controller():
     store = authenticated_store()
     calls = []
