@@ -49,6 +49,8 @@ REPROBADOS = (
     MateriaReprobada(
         "Cálculo diferencial",
         20252,
+        2,
+        "SI",
         "2024320678",
         "Ana López Martínez",
         "Ingeniería Química Industrial",
@@ -56,6 +58,8 @@ REPROBADOS = (
     MateriaReprobada(
         "Termodinámica",
         20243,
+        3,
+        "NO",
         "2024320678",
         "Ana López Martínez",
         "Ingeniería Química Industrial",
@@ -63,6 +67,8 @@ REPROBADOS = (
     MateriaReprobada(
         "Álgebra lineal",
         20242,
+        1,
+        None,
         "2024320678",
         "Ana López Martínez",
         "Ingeniería Química Industrial",

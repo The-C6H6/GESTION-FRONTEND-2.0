@@ -32,15 +32,31 @@ def test_validate_period_rejects_invalid_current_periods(value):
 
 def test_eligible_subjects_include_only_differences_from_19_through_28():
     subjects = (
-        MateriaReprobada("Fuera por 18", 20253),
-        MateriaReprobada("Límite inferior", 20252),
-        MateriaReprobada("Límite superior", 20243),
-        MateriaReprobada("Fuera por 29", 20242),
+        MateriaReprobada(
+            "Fuera por 18", 20253, intentos_ordinario=1, materia_inscrita="NO"
+        ),
+        MateriaReprobada(
+            "Límite inferior", 20252, intentos_ordinario=2, materia_inscrita="SI"
+        ),
+        MateriaReprobada(
+            "Límite superior", 20243, intentos_ordinario=3, materia_inscrita=None
+        ),
+        MateriaReprobada(
+            "Fuera por 29", 20242, intentos_ordinario=4, materia_inscrita="NO"
+        ),
     )
 
     result = eligible_subjects("20271", subjects)
 
-    assert [(item.materia, item.diferencia) for item in result] == [
-        ("Límite inferior", 19),
-        ("Límite superior", 28),
+    assert [
+        (
+            item.materia,
+            item.diferencia,
+            item.intentos_ordinario,
+            item.materia_inscrita,
+        )
+        for item in result
+    ] == [
+        ("Límite inferior", 19, 2, "SI"),
+        ("Límite superior", 28, 3, None),
     ]

@@ -44,6 +44,8 @@ class DictamenUpdate:
 class MateriaReprobada:
     materia: str
     periodo_reprobada: int
+    intentos_ordinario: int
+    materia_inscrita: str | None
     boleta: str = ""
     nombre: str = ""
     carrera: str = ""
@@ -54,6 +56,8 @@ class MateriaElegible:
     materia: str
     periodo_reprobada: int
     diferencia: int
+    intentos_ordinario: int
+    materia_inscrita: str | None
 
 
 @dataclass(frozen=True)

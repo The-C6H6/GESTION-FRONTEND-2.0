@@ -100,6 +100,8 @@ def test_failed_source_uses_only_reprobados_and_builds_its_own_student():
                 SimpleNamespace(
                     materia="Cálculo diferencial",
                     periodo_reprobada=20252,
+                    intentos_ordinario=2,
+                    materia_inscrita="SI",
                     boleta=boleta,
                     nombre="Alumno solo reprobado",
                     carrera="Ingeniería Química Industrial",

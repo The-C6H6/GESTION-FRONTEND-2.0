@@ -35,7 +35,7 @@ REPROBADO_ITEM = {
     "Intentos_Ordinario": 2,
     "Intentos_ETS": 1,
     "Total_intentos": 3,
-    "MateriaInscrita": None,
+    "MateriaInscrita": "SI",
     "InscritoActualmente": None,
     "Tipo": None,
     "id": 123,
@@ -82,6 +82,21 @@ def test_reprobado_repository_sends_boleta_as_query_and_maps_one_item():
     assert result[0].carrera == "INGENIERIA QUIMICA INDUSTRIAL"
     assert result[0].materia == "TERMODINAMICA"
     assert result[0].periodo_reprobada == 20243
+    assert result[0].intentos_ordinario == 2
+    assert result[0].materia_inscrita == "SI"
+    assert not hasattr(result[0], "inscrito_actualmente")
+
+
+@pytest.mark.parametrize("materia_inscrita", ["SI", "NO", None])
+def test_reprobado_repository_preserves_materia_inscrita(materia_inscrita):
+    item = {**REPROBADO_ITEM, "MateriaInscrita": materia_inscrita}
+    repository, _ = _repository(
+        lambda request: httpx.Response(200, json=paginated_response(item))
+    )
+
+    result = asyncio.run(repository.search_reprobados(boleta="2022630000"))
+
+    assert result[0].materia_inscrita == materia_inscrita
 
 
 def test_reprobado_repository_maps_multiple_items():
@@ -257,7 +272,10 @@ def test_reprobado_repository_rejects_malformed_pages(response_json):
     [
         {key: value for key, value in REPROBADO_ITEM.items() if key != "Materia"},
         {**REPROBADO_ITEM, "Plan_estud": "2021"},
+        {key: value for key, value in REPROBADO_ITEM.items() if key != "Intentos_Ordinario"},
+        {**REPROBADO_ITEM, "Intentos_Ordinario": "2"},
         {**REPROBADO_ITEM, "Intentos_ETS": "1"},
+        {**REPROBADO_ITEM, "MateriaInscrita": 123},
         {**REPROBADO_ITEM, "E_Mail_Personal": 123},
     ],
 )

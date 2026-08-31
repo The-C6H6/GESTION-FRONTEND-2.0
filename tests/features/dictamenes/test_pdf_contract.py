@@ -24,7 +24,7 @@ def test_demo_pdf_generator_reports_simulation_without_fake_pdf_download():
         ),
         director="Dr. Nombre Apellido",
         fecha_sesion=date(2026, 12, 11),
-        materias=(MateriaElegible("Cálculo diferencial", 20252, 19),),
+        materias=(MateriaElegible("Cálculo diferencial", 20252, 19, 2, "SI"),),
     )
 
     document = asyncio.run(DemoPdfGenerator().generate(request))

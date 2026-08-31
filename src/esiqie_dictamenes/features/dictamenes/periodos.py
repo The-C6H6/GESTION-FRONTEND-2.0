@@ -33,6 +33,8 @@ def eligible_subjects(
                     materia=subject.materia,
                     periodo_reprobada=subject.periodo_reprobada,
                     diferencia=difference,
+                    intentos_ordinario=subject.intentos_ordinario,
+                    materia_inscrita=subject.materia_inscrita,
                 )
             )
     return tuple(eligible)

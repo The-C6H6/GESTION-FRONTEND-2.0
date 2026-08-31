@@ -47,7 +47,7 @@ def test_student_search_delegates_the_selected_source_to_the_use_case():
     selected_student = SimpleNamespace(boleta="2024999999")
     candidate = SimpleNamespace(
         alumno=selected_student,
-        materias=(MateriaElegible("Cálculo", 20252, 19),),
+        materias=(MateriaElegible("Cálculo", 20252, 19, 2, "SI"),),
         total_reprobadas=1,
     )
 
@@ -259,7 +259,7 @@ def test_non_eligible_failed_subjects_show_count_and_unavailable_message():
     ("source", "alumno", "materias", "total_reprobadas", "expected"),
     [
         ("reprobado", object(), (), 3, True),
-        ("reprobado", object(), (MateriaElegible("Cálculo", 20252, 19),), 3, False),
+        ("reprobado", object(), (MateriaElegible("Cálculo", 20252, 19, 2, "SI"),), 3, False),
         ("inscrito", object(), (), 0, False),
         ("reprobado", None, (), 0, False),
     ],

@@ -78,10 +78,10 @@ class ApiReprobadoRepository:
         cls._string(item, "Departamento")
         cls._string(item, "Academia")
         periodo_reprobada = cls._integer(item, "Periodo_reprobada")
-        cls._integer(item, "Intentos_Ordinario")
+        intentos_ordinario = cls._integer(item, "Intentos_Ordinario")
         cls._optional_integer(item, "Intentos_ETS")
         cls._optional_integer(item, "Total_intentos")
-        cls._optional_string(item, "MateriaInscrita")
+        materia_inscrita = cls._optional_string(item, "MateriaInscrita")
         cls._optional_string(item, "InscritoActualmente")
         cls._optional_string(item, "Tipo")
         cls._integer(item, "id")
@@ -89,6 +89,8 @@ class ApiReprobadoRepository:
         return MateriaReprobada(
             materia=materia,
             periodo_reprobada=periodo_reprobada,
+            intentos_ordinario=intentos_ordinario,
+            materia_inscrita=materia_inscrita,
             boleta=boleta,
             nombre=nombre,
             carrera=carrera,
