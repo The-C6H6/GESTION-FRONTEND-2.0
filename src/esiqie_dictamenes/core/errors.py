@@ -91,6 +91,27 @@ class UnexpectedResponseError(AppError):
         super().__init__("El servicio devolvió una respuesta no válida.")
 
 
+class PdfGenerationError(AppError):
+    """Raised when a PDF cannot be generated safely."""
+
+    def __init__(self, message: str = "No fue posible generar el documento PDF.") -> None:
+        super().__init__(message)
+
+
+class PdfDestinationError(PdfGenerationError):
+    """Raised when a selected PDF destination is not usable."""
+
+    def __init__(self) -> None:
+        super().__init__("No fue posible usar la ubicación seleccionada para el PDF.")
+
+
+class PdfSaveError(PdfGenerationError):
+    """Raised when a PDF cannot be persisted safely."""
+
+    def __init__(self) -> None:
+        super().__init__("No fue posible guardar el documento PDF.")
+
+
 def to_user_message(error: Exception) -> str:
     if isinstance(error, AppError):
         return str(error)

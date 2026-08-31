@@ -61,6 +61,19 @@ def test_session_date_formatter_uses_spanish_month_without_year(month, name):
     assert "2026" not in result
 
 
+def test_pdf_filename_uses_the_dictamen_boleta_and_issue_date():
+    dictamen = Dictamen(
+        clave="D-00132",
+        boleta="2021320863",
+        alumno="Ana LÃ³pez MartÃ­nez",
+        fecha=date(2026, 8, 30),
+        anio=2026,
+        dictaminacion="ArtÃ­culo 56",
+    )
+
+    assert pdf.build_pdf_filename(dictamen) == "2021320863_dictamen_2026-08-30.pdf"
+
+
 def test_session_paragraph_inserts_the_formatted_date_once():
     result = pdf.build_session_paragraph(date(2026, 12, 11))
 

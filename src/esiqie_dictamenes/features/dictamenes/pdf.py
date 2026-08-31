@@ -1,7 +1,8 @@
 from datetime import date
+from pathlib import Path
 from typing import Protocol
 
-from .models import GeneratedDocument, PdfRequest
+from .models import Dictamen, GeneratedDocument, PdfRequest
 
 
 _MONTHS = (
@@ -41,5 +42,15 @@ def build_session_paragraph(fecha_sesion: date) -> str:
     )
 
 
+def build_pdf_filename(dictamen: Dictamen) -> str:
+    return f"{dictamen.boleta}_dictamen_{dictamen.fecha.isoformat()}.pdf"
+
+
 class PdfGenerator(Protocol):
     async def generate(self, request: PdfRequest) -> GeneratedDocument: ...
+
+
+class PdfDocumentStore(Protocol):
+    def validate_destination(self, destination: str | Path) -> Path: ...
+
+    async def save(self, destination: str | Path, document: bytes) -> Path: ...
