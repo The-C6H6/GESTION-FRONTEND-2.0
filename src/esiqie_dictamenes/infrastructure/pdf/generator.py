@@ -241,8 +241,14 @@ class RealPdfGenerator:
     @classmethod
     def _draw_subject_table(cls, pdf: _InstitutionalPdf, request: PdfRequest) -> None:
         signature_height = cls._measure_signature_height(pdf, request.director)
-        cls._draw_table_header(pdf)
-        for materia in request.materias:
+        header_height = cls._measure_table_row_height(
+            pdf,
+            tuple(column[0] for column in _TABLE_COLUMNS),
+            font_style="B",
+            font_size=_TABLE_HEADER_FONT_SIZE,
+            line_height=_TABLE_HEADER_LINE_HEIGHT,
+        )
+        for index, materia in enumerate(request.materias):
             cells = (
                 materia.materia,
                 str(materia.periodo_reprobada),
@@ -250,8 +256,16 @@ class RealPdfGenerator:
                 materia.materia_inscrita or "",
             )
             row_height = cls._measure_table_row_height(pdf, cells)
-            if cls._requires_new_page(pdf, row_height + signature_height):
+            cls._ensure_table_row_fits_page(pdf, row_height, header_height)
+            if cls._requires_new_table_page(
+                pdf,
+                header_height=header_height,
+                row_height=row_height,
+                signature_height=signature_height,
+                has_drawn_header=index > 0,
+            ):
                 pdf.add_page()
+            if index == 0 or pdf.get_x() != _TABLE_LEFT or pdf.get_y() == pdf.t_margin:
                 cls._draw_table_header(pdf)
             cls._draw_table_row(pdf, cells)
         pdf.ln(2)
@@ -447,3 +461,27 @@ class RealPdfGenerator:
         if required_height > available_page_height:
             return False
         return required_height > pdf.page_break_trigger - pdf.get_y()
+
+    @staticmethod
+    def _requires_new_table_page(
+        pdf: _InstitutionalPdf,
+        *,
+        header_height: float,
+        row_height: float,
+        signature_height: float,
+        has_drawn_header: bool,
+    ) -> bool:
+        required_height = row_height + signature_height
+        if not has_drawn_header:
+            required_height += header_height
+        if required_height <= pdf.page_break_trigger - pdf.get_y():
+            return False
+        return pdf.get_y() > pdf.t_margin
+
+    @staticmethod
+    def _ensure_table_row_fits_page(
+        pdf: _InstitutionalPdf, row_height: float, header_height: float
+    ) -> None:
+        max_row_height = (pdf.page_break_trigger - pdf.t_margin) - header_height
+        if row_height > max_row_height:
+            raise PdfGenerationError()

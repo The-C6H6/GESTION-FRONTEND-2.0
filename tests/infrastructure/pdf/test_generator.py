@@ -25,6 +25,7 @@ TABLE_HEADERS = (
     "Intentos Ordinario",
     "Inscrita",
 )
+TABLE_COLUMN_WIDTHS_MM = (88, 32, 30, 22)
 LONG_SUBJECT = (
     "PROCESOS DE SEPARACI\u00d3N POR MEMBRANA Y LOS QUE INVOLUCRAN "
     "UNA FASE S\u00d3LIDA"
@@ -97,6 +98,47 @@ def _subject_page_numbers(document: pymupdf.Document, *tokens: str) -> set[int]:
         if any(token in words for token in tokens):
             pages.add(page_number)
     return pages
+
+
+def _table_rectangles(page: pymupdf.Page) -> list[pymupdf.Rect]:
+    rectangles: list[pymupdf.Rect] = []
+    left_bound, right_bound, _ = _table_bounds_points()
+    for drawing in page.get_drawings():
+        rect = drawing.get("rect")
+        if rect is None:
+            continue
+        if rect.x0 < left_bound - 3 or rect.x1 > right_bound + 3:
+            continue
+        rectangles.append(rect)
+    return rectangles
+
+
+def _row_rectangles(page: pymupdf.Page, expected_y: float | None = None) -> list[pymupdf.Rect]:
+    widths = [width * POINTS_PER_MM for width in TABLE_COLUMN_WIDTHS_MM]
+    rectangles = [
+        rect
+        for rect in _table_rectangles(page)
+        if any(abs(rect.width - width) <= 3 for width in widths)
+    ]
+    if expected_y is None:
+        y_positions = sorted({round(rect.y0, 1) for rect in rectangles})
+        expected_y = y_positions[-1]
+    return [
+        rect
+        for rect in rectangles
+        if abs(rect.y0 - expected_y) <= 1.5
+    ]
+
+
+def _words_inside(page: pymupdf.Page, rect: pymupdf.Rect) -> list[str]:
+    words = []
+    for word in page.get_text("words"):
+        word_rect = pymupdf.Rect(word[:4])
+        center_x = (word_rect.x0 + word_rect.x1) / 2
+        center_y = (word_rect.y0 + word_rect.y1) / 2
+        if rect.contains(pymupdf.Point(center_x, center_y)):
+            words.append(word[4])
+    return words
 
 
 def test_generate_returns_one_real_in_memory_pdf_without_a_subject_table():
@@ -192,6 +234,65 @@ def test_generate_renders_the_four_subject_columns_for_one_and_many_subjects():
         pdf.close()
 
 
+def test_generate_keeps_the_fourth_cell_empty_but_bordered_when_inscrita_is_none():
+    request = _table_request(
+        MateriaElegible("SUBJECT-EMPTY-CELL", 20242, 20, 2, None),
+    )
+
+    result = asyncio.run(RealPdfGenerator(project_assets_dir()).generate(request))
+    pdf = pymupdf.open(stream=result.content, filetype="pdf")
+
+    try:
+        page = pdf[0]
+        row_rectangles = _row_rectangles(page)
+
+        assert len(row_rectangles) == 4
+
+        fourth_cell = max(row_rectangles, key=lambda rect: rect.x0)
+        first_three_words = [_words_inside(page, rect) for rect in sorted(row_rectangles, key=lambda rect: rect.x0)[:3]]
+
+        assert fourth_cell.width == pytest.approx(
+            TABLE_COLUMN_WIDTHS_MM[-1] * POINTS_PER_MM,
+            abs=3,
+        )
+        assert _words_inside(page, fourth_cell) == []
+        assert any("SUBJECT-EMPTY-CELL" in words for words in first_three_words)
+        assert any("20242" in words for words in first_three_words)
+        assert any("2" in words for words in first_three_words)
+    finally:
+        pdf.close()
+
+
+def test_generate_moves_the_initial_table_header_with_the_first_row_when_space_is_tight():
+    request = replace(
+        _request(),
+        dictamen=replace(
+            _request().dictamen,
+            dictaminacion="Texto de dictamen largo. " * 117,
+        ),
+        materias=(
+            MateriaElegible("HEADERCHECK01 SUBJECT", 20242, 20, 2, "SI"),
+        ),
+    )
+
+    result = asyncio.run(RealPdfGenerator(project_assets_dir()).generate(request))
+    pdf = pymupdf.open(stream=result.content, filetype="pdf")
+
+    try:
+        page_texts = [_page_text(page) for page in pdf]
+        header_pages = {
+            page_number
+            for page_number, page_text in enumerate(page_texts)
+            if "Materia Desfasada" in page_text
+        }
+        subject_pages = _subject_page_numbers(pdf, "HEADERCHECK01")
+
+        assert header_pages == subject_pages
+        assert len(header_pages) == 1
+    finally:
+        pdf.close()
+
+
 def test_generate_wraps_a_long_subject_inside_table_bounds_without_overlapping_next_row():
     request = _table_request(
         MateriaElegible(LONG_SUBJECT, 20242, 20, 3, "SI"),
@@ -228,6 +329,18 @@ def test_generate_wraps_a_long_subject_inside_table_bounds_without_overlapping_n
         pdf.close()
 
 
+def test_generate_rejects_a_subject_row_that_cannot_fit_on_one_page():
+    request = _table_request(
+        MateriaElegible("PALABRA " * 900, 20242, 20, 3, "SI"),
+    )
+
+    with pytest.raises(
+        PdfGenerationError,
+        match=r"^No fue posible generar el documento PDF\.$",
+    ):
+        asyncio.run(RealPdfGenerator(project_assets_dir()).generate(request))
+
+
 def test_generate_repeats_table_headers_on_each_subject_page_without_splitting_rows():
     materias = tuple(
         MateriaElegible(
@@ -261,13 +374,9 @@ def test_generate_repeats_table_headers_on_each_subject_page_without_splitting_r
         assert sum("ATENTAMENTE" in page_text for page_text in page_texts) == 1
         assert sum("DIRECTOR(A)" in page_text for page_text in page_texts) == 1
 
-        for index, subject in (
-            (1, materias[0].materia),
-            (10, materias[9].materia),
-            (22, materias[-1].materia),
-        ):
-            normalized_subject = _normalize(subject)
-            combined_text = " ".join(page_texts)
+        combined_text = " ".join(page_texts)
+        for index, subject in enumerate(materias, start=1):
+            normalized_subject = _normalize(subject.materia)
             assert combined_text.count(normalized_subject) == 1
             assert _subject_page_numbers(
                 pdf,
