@@ -636,6 +636,49 @@ def test_create_pdf_workflow_invalid_destination_has_no_mutation():
     assert store.save_calls == []
 
 
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("alumno", None, "Primero busca y selecciona un alumno."),
+        ("dictaminacion", "   ", "La dictaminación es obligatoria."),
+        ("director", "   ", "El director es obligatorio."),
+        (
+            "fecha_sesion",
+            "30 DE AGOSTO",
+            "Selecciona la fecha de sesión en el calendario.",
+        ),
+        ("reference", "2026-08-30", "La fecha del dictamen no es válida."),
+    ],
+)
+def test_create_pdf_workflow_rejects_invalid_input_before_any_output_stage(
+    field,
+    value,
+    message,
+):
+    """Keep all local CREATE validation ahead of selection and mutation."""
+    controller = _WorkflowController()
+    store = _WorkflowStore()
+    selector = _WorkflowSelector("C:/tmp/resultado.pdf")
+    services = _workflow_services(controller, store)
+
+    with pytest.raises(ValueError, match=message):
+        asyncio.run(
+            _create_workflow_with(
+                services,
+                controller,
+                store,
+                selector=selector,
+                **{field: value},
+            )
+        )
+
+    assert selector.calls == []
+    assert store.validate_calls == []
+    assert controller.create_calls == []
+    assert controller.generate_calls == []
+    assert store.save_calls == []
+
+
 async def _create_workflow_with(services, controller, store, **overrides):
     kwargs = _workflow_kwargs(services=services, **overrides)
     return await crear._create_pdf_workflow(**kwargs)
