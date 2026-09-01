@@ -16,7 +16,15 @@ from esiqie_dictamenes.core.routes import RoutePath
 from esiqie_dictamenes.features.alumnos.views.reprobados import (
     eligible_subjects_table,
 )
-from esiqie_dictamenes.features.dictamenes.models import MateriaElegible
+from esiqie_dictamenes.features.alumnos.models import AlumnoDictaminable
+from esiqie_dictamenes.features.dictamenes.controller import CreatedDictamen
+from esiqie_dictamenes.features.dictamenes.models import (
+    Dictamen,
+    GeneratedDocument,
+    MateriaElegible,
+    PdfRequest,
+)
+from esiqie_dictamenes.features.dictamenes.pdf import build_pdf_filename
 from esiqie_dictamenes.features.dictamenes.views import crear
 from tests.helpers import authenticated_user, build_test_services
 
@@ -382,3 +390,284 @@ def test_changing_a_search_criterion_invalidates_the_selected_student():
     assert student_updates == [None]
     assert subject_updates == [()]
     assert total_updates == [0]
+
+
+@pytest.mark.parametrize(
+    ("web", "platform", "supported"),
+    [
+        (True, ft.PagePlatform.WINDOWS, False),
+        (False, ft.PagePlatform.ANDROID, False),
+        (False, ft.PagePlatform.IOS, False),
+        (False, ft.PagePlatform.WINDOWS, True),
+        (False, ft.PagePlatform.MACOS, True),
+        (False, ft.PagePlatform.LINUX, True),
+    ],
+)
+def test_pdf_output_platform_support_is_desktop_only(web, platform, supported):
+    from esiqie_dictamenes.features.dictamenes.views.pdf_output import (
+        platform_supports_pdf_output,
+    )
+
+    assert platform_supports_pdf_output(web=web, platform=platform) is supported
+
+
+def test_pdf_selector_uses_canonical_filename_and_does_not_send_bytes():
+    from esiqie_dictamenes.features.dictamenes.views.pdf_output import (
+        FletPdfDestinationSelector,
+    )
+
+    dictamen = Dictamen(
+        clave="",
+        boleta="2021320863",
+        alumno="Ana Alumna",
+        fecha=date(2026, 8, 30),
+        anio=2026,
+        dictaminacion="Aceptada",
+    )
+
+    class Picker:
+        def __init__(self):
+            self.calls = []
+
+        async def save_file(self, **kwargs):
+            self.calls.append(kwargs)
+            return "C:/tmp/resultado.pdf"
+
+    picker = Picker()
+    selected = asyncio.run(FletPdfDestinationSelector(picker).select(dictamen))
+
+    assert selected == "C:/tmp/resultado.pdf"
+    assert picker.calls == [
+        {
+            "file_name": build_pdf_filename(dictamen),
+            "file_type": ft.FilePickerFileType.CUSTOM,
+            "allowed_extensions": ["pdf"],
+        }
+    ]
+
+
+def _created_result(*, clave="CSE-0001-26"):
+    dictamen = Dictamen(
+        clave=clave,
+        boleta="2021320863",
+        alumno="Ana Alumna",
+        fecha=date(2026, 8, 30),
+        anio=2026,
+        dictaminacion="Aceptada",
+    )
+    request = PdfRequest(
+        dictamen=dictamen,
+        director="Directora",
+        fecha_sesion=date(2026, 8, 30),
+        materias=(MateriaElegible("Cálculo", 20252, 19, 2, "SI"),),
+    )
+    return CreatedDictamen(dictamen, object(), request)
+
+
+class _WorkflowController:
+    def __init__(self, result=None, create_error=None, generation_error=None):
+        self.result = result or _created_result()
+        self.create_error = create_error
+        self.generation_error = generation_error
+        self.create_calls = []
+        self.generate_calls = []
+
+    async def create(self, **kwargs):
+        self.create_calls.append(kwargs)
+        if self.create_error:
+            raise self.create_error
+        return self.result
+
+    async def generate_pdf(self, request):
+        self.generate_calls.append(request)
+        if self.generation_error:
+            raise self.generation_error
+        return GeneratedDocument("generated.pdf", b"pdf", False)
+
+
+class _WorkflowSelector:
+    def __init__(self, path):
+        self.path = path
+        self.calls = []
+
+    async def select(self, dictamen):
+        self.calls.append(dictamen)
+        return self.path
+
+
+class _WorkflowStore:
+    def __init__(self, path="C:/tmp/resultado.pdf", validate_error=None, save_error=None):
+        self.path = path
+        self.validate_error = validate_error
+        self.save_error = save_error
+        self.validate_calls = []
+        self.save_calls = []
+
+    def validate_destination(self, path):
+        self.validate_calls.append(path)
+        if self.validate_error:
+            raise self.validate_error
+        return self.path
+
+    async def save(self, path, content):
+        self.save_calls.append((path, content))
+        if self.save_error:
+            raise self.save_error
+        return self.path
+
+
+def _workflow_services(controller, store):
+    class Auth:
+        def __init__(self):
+            self.calls = 0
+
+        def require_admin(self):
+            self.calls += 1
+
+    services = SimpleNamespace(
+        auth_session=Auth(),
+        dictamen_controller=controller,
+        document_store=store,
+    )
+    return services
+
+
+def _workflow_kwargs(**overrides):
+    values = {
+        "page": SimpleNamespace(web=False, platform=ft.PagePlatform.WINDOWS),
+        "selector": _WorkflowSelector("C:/tmp/resultado.pdf"),
+        "services": None,
+        "alumno": AlumnoDictaminable("2021320863", "Ana Alumna", "IQI"),
+        "dictaminacion": "Aceptada",
+        "director": "Directora",
+        "materias": (MateriaElegible("Cálculo", 20252, 19, 2, "SI"),),
+        "reference": date(2026, 8, 30),
+        "fecha_sesion": date(2026, 8, 30),
+    }
+    values.update(overrides)
+    return values
+
+
+def test_create_pdf_workflow_orders_selector_create_generate_and_save():
+    controller = _WorkflowController()
+    store = _WorkflowStore(path="C:/tmp/resultado_2.pdf")
+    services = _workflow_services(controller, store)
+    kwargs = _workflow_kwargs(services=services)
+
+    result = asyncio.run(crear._create_pdf_workflow(**kwargs))
+
+    assert result.saved_path == "C:/tmp/resultado_2.pdf"
+    assert len(kwargs["selector"].calls) == 1
+    assert len(controller.create_calls) == 1
+    assert len(controller.generate_calls) == 1
+    assert len(store.save_calls) == 1
+    assert controller.create_calls[0]["materias"] == kwargs["materias"]
+
+
+def test_create_pdf_workflow_cancellation_has_no_mutation_or_output():
+    controller = _WorkflowController()
+    store = _WorkflowStore()
+    services = _workflow_services(controller, store)
+    kwargs = _workflow_kwargs(
+        services=services,
+        selector=_WorkflowSelector(None),
+    )
+
+    result = asyncio.run(crear._create_pdf_workflow(**kwargs))
+
+    assert result.cancelled is True
+    assert controller.create_calls == []
+    assert controller.generate_calls == []
+    assert store.save_calls == []
+
+
+def test_create_pdf_workflow_invalid_destination_has_no_mutation():
+    controller = _WorkflowController()
+    store = _WorkflowStore(validate_error=ValueError("invalid"))
+    services = _workflow_services(controller, store)
+
+    with pytest.raises(ValueError, match="invalid"):
+        asyncio.run(_create_workflow_with(services, controller, store))
+
+    assert controller.create_calls == []
+    assert controller.generate_calls == []
+    assert store.save_calls == []
+
+
+async def _create_workflow_with(services, controller, store, **overrides):
+    kwargs = _workflow_kwargs(services=services, **overrides)
+    return await crear._create_pdf_workflow(**kwargs)
+
+
+@pytest.mark.parametrize(
+    "platform", [ft.PagePlatform.ANDROID, ft.PagePlatform.IOS]
+)
+def test_create_pdf_workflow_blocks_web_mobile_before_selector_and_mutation(platform):
+    controller = _WorkflowController()
+    store = _WorkflowStore()
+    selector = _WorkflowSelector("C:/tmp/resultado.pdf")
+    services = _workflow_services(controller, store)
+
+    with pytest.raises(ValueError):
+        asyncio.run(
+            _create_workflow_with(
+                services,
+                controller,
+                store,
+                page=SimpleNamespace(web=False, platform=platform),
+                selector=selector,
+            )
+        )
+
+    assert selector.calls == []
+    assert controller.create_calls == []
+
+
+def test_create_pdf_workflow_backend_failure_does_not_generate_or_save():
+    controller = _WorkflowController(create_error=RuntimeError("backend"))
+    store = _WorkflowStore()
+    services = _workflow_services(controller, store)
+
+    with pytest.raises(RuntimeError, match="backend"):
+        asyncio.run(_create_workflow_with(services, controller, store))
+
+    assert controller.generate_calls == []
+    assert store.save_calls == []
+
+
+def test_create_pdf_workflow_generation_failure_retains_created_key_without_retry():
+    controller = _WorkflowController(generation_error=RuntimeError("render"))
+    store = _WorkflowStore()
+    services = _workflow_services(controller, store)
+    invalidated = []
+
+    result = asyncio.run(
+        _create_workflow_with(
+            services,
+            controller,
+            store,
+            on_post_mutation_failure=invalidated.append,
+        )
+    )
+
+    assert result.dictamen.clave == "CSE-0001-26"
+    assert result.pdf_saved is False
+    assert result.message.find("CSE-0001-26") >= 0
+    assert len(controller.create_calls) == 1
+    assert len(controller.generate_calls) == 1
+    assert store.save_calls == []
+    assert invalidated == [result.dictamen]
+
+
+def test_create_pdf_workflow_save_failure_retains_created_key_without_retry():
+    controller = _WorkflowController()
+    store = _WorkflowStore(save_error=RuntimeError("disk"))
+    services = _workflow_services(controller, store)
+
+    result = asyncio.run(_create_workflow_with(services, controller, store))
+
+    assert result.dictamen.clave == "CSE-0001-26"
+    assert result.pdf_saved is False
+    assert "CSE-0001-26" in result.message
+    assert len(controller.create_calls) == 1
+    assert len(controller.generate_calls) == 1

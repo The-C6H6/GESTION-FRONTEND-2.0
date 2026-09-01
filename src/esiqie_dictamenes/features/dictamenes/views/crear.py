@@ -1,5 +1,6 @@
 from collections.abc import Awaitable, Callable
 from datetime import date, datetime
+from inspect import isawaitable
 
 import flet as ft
 
@@ -11,9 +12,19 @@ from esiqie_dictamenes.core.errors import (
 )
 from esiqie_dictamenes.core.routes import RoutePath
 from esiqie_dictamenes.features.auth.models import AuthenticatedUser
+from esiqie_dictamenes.features.dictamenes.models import Dictamen
 from esiqie_dictamenes.features.dictamenes.pdf import format_session_date
 from esiqie_dictamenes.features.dictamenes.periodos import current_period
 from esiqie_dictamenes.features.alumnos.views.reprobados import eligible_subjects_table
+from esiqie_dictamenes.features.dictamenes.views.pdf_output import (
+    CreatePdfResult,
+    FletPdfDestinationSelector,
+    post_mutation_pdf_failure_message,
+    require_desktop_pdf_output,
+    saved_pdf_message,
+    selector_result,
+    use_file_picker,
+)
 from esiqie_dictamenes.shared.components.feedback import feedback
 from esiqie_dictamenes.shared.components.page_header import page_header
 from esiqie_dictamenes.shared.request_gate import RequestGate as _RequestGate
@@ -85,6 +96,92 @@ def _creation_error_message(error: Exception) -> str:
 
 def _creation_success_message(clave: str) -> str:
     return f"Dictamen creado correctamente. Clave: {clave}"
+
+
+async def _create_pdf_workflow(
+    *,
+    page,
+    selector,
+    services,
+    alumno,
+    dictaminacion: str,
+    director: str,
+    materias: tuple,
+    ruling_unavailable: bool = False,
+    reference: date,
+    fecha_sesion: date,
+    on_post_mutation_failure: Callable[[Dictamen], None] | None = None,
+) -> CreatePdfResult:
+    """Run CREATE's destination, mutation, generation, and save stages."""
+    services.auth_session.require_admin()
+    if alumno is None:
+        raise ValueError("Primero busca y selecciona un alumno.")
+    if ruling_unavailable:
+        raise ValueError(
+            "El alumno no puede dictaminarse por que no tiene materias "
+            "que se puedan dictaminar"
+        )
+    if not isinstance(dictaminacion, str) or not dictaminacion.strip():
+        raise ValueError("La dictaminación es obligatoria.")
+    if not isinstance(director, str) or not director.strip():
+        raise ValueError("El director es obligatorio.")
+    if not isinstance(fecha_sesion, date):
+        raise ValueError("Selecciona la fecha de sesión en el calendario.")
+    if not isinstance(reference, date):
+        raise ValueError("La fecha del dictamen no es válida.")
+
+    require_desktop_pdf_output(page)
+    suggested = Dictamen(
+        clave="",
+        boleta=alumno.boleta,
+        alumno=alumno.nombre,
+        fecha=reference,
+        anio=reference.year,
+        dictaminacion=dictaminacion.strip(),
+    )
+    selected = selector_result(selector, suggested)
+    if isawaitable(selected):
+        selected = await selected
+    if not selected:
+        return CreatePdfResult(dictamen=None, cancelled=True)
+
+    destination = services.document_store.validate_destination(selected)
+    created = await _create_dictamen(
+        services,
+        alumno=alumno,
+        dictaminacion=dictaminacion,
+        director=director,
+        materias=materias,
+        reference=reference,
+        fecha_sesion=fecha_sesion,
+    )
+
+    # The API mutation is intentionally not retried after this point. The
+    # final key remains available to the user even if local output fails.
+    try:
+        document = await services.dictamen_controller.generate_pdf(
+            created.pdf_request
+        )
+        saved_path = await services.document_store.save(
+            destination,
+            document.content,
+        )
+    except Exception:
+        if on_post_mutation_failure is not None:
+            on_post_mutation_failure(created.dictamen)
+        return CreatePdfResult(
+            dictamen=created.dictamen,
+            cancelled=False,
+            pdf_saved=False,
+            message=post_mutation_pdf_failure_message(created.dictamen.clave),
+        )
+
+    return CreatePdfResult(
+        dictamen=created.dictamen,
+        saved_path=saved_path,
+        pdf_saved=True,
+        message=saved_pdf_message(created.dictamen.clave, saved_path),
+    )
 
 
 def _build_failed_subjects_section(
@@ -198,6 +295,7 @@ def DictamenCreateView() -> ft.Control:
     is_error, set_is_error = ft.use_state(False)
     search_busy, set_search_busy = ft.use_state(False)
     create_busy, set_create_busy = ft.use_state(False)
+    pdf_picker = use_file_picker()
 
     def select_session_date(event: ft.Event[ft.DatePicker]) -> None:
         if event.control.value is not None:
@@ -236,24 +334,25 @@ def DictamenCreateView() -> ft.Control:
 
     async def create() -> None:
         async def operation() -> None:
-            if alumno is None:
-                raise ValueError("Primero busca y selecciona un alumno.")
-            if ruling_unavailable:
-                raise ValueError(
-                    "El alumno no puede dictaminarse por que no tiene materias "
-                    "que se puedan dictaminar"
-                )
-            result = await _create_dictamen(
-                context.services,
+            output = await _create_pdf_workflow(
+                page=ft.context.page,
+                selector=FletPdfDestinationSelector(pdf_picker),
+                services=context.services,
                 alumno=alumno,
                 dictaminacion=dictaminacion,
                 director=director,
                 materias=materias,
+                ruling_unavailable=ruling_unavailable,
                 reference=date.today(),
                 fecha_sesion=fecha_sesion,
+                on_post_mutation_failure=lambda _dictamen: (
+                    set_alumno(None),
+                    set_materias(()),
+                    set_total_reprobadas(0),
+                ),
             )
-            set_message(_creation_success_message(result.dictamen.clave))
-            set_is_error(False)
+            set_message(output.message)
+            set_is_error(not output.pdf_saved)
 
         try:
             await _run_guarded_request(
