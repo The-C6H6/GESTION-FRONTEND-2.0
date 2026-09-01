@@ -33,6 +33,12 @@ def test_validate_destination_accepts_a_custom_pdf_filename_without_creating_it(
     assert not destination.exists()
 
 
+@pytest.mark.parametrize("destination", ["dictamen", "dictamen.pdf"])
+def test_validate_destination_rejects_relative_targets_before_path_checks(destination):
+    with pytest.raises(PdfDestinationError):
+        LocalPdfDocumentStore().validate_destination(destination)
+
+
 @pytest.mark.parametrize(
     "destination",
     [

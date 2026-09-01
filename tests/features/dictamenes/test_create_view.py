@@ -10,6 +10,7 @@ from esiqie_dictamenes.core.errors import (
     ApiConnectionError,
     ApiTimeoutError,
     AuthorizationError,
+    PdfDestinationError,
     SessionExpiredError,
 )
 from esiqie_dictamenes.core.routes import RoutePath
@@ -26,6 +27,9 @@ from esiqie_dictamenes.features.dictamenes.models import (
 )
 from esiqie_dictamenes.features.dictamenes.pdf import build_pdf_filename
 from esiqie_dictamenes.features.dictamenes.views import crear
+from esiqie_dictamenes.infrastructure.pdf.document_store import (
+    LocalPdfDocumentStore,
+)
 from tests.helpers import authenticated_user, build_test_services
 
 
@@ -634,6 +638,28 @@ def test_create_pdf_workflow_invalid_destination_has_no_mutation():
     assert controller.create_calls == []
     assert controller.generate_calls == []
     assert store.save_calls == []
+
+
+@pytest.mark.parametrize("destination", ["dictamen", "dictamen.pdf"])
+def test_create_pdf_workflow_rejects_relative_destination_before_mutation(
+    destination,
+):
+    controller = _WorkflowController(generation_error=RuntimeError("stop"))
+    store = LocalPdfDocumentStore()
+    services = _workflow_services(controller, store)
+
+    with pytest.raises(PdfDestinationError):
+        asyncio.run(
+            _create_workflow_with(
+                services,
+                controller,
+                store,
+                selector=_WorkflowSelector(destination),
+            )
+        )
+
+    assert controller.create_calls == []
+    assert controller.generate_calls == []
 
 
 @pytest.mark.parametrize(

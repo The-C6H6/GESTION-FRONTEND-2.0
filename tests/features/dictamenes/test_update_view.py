@@ -12,6 +12,7 @@ from esiqie_dictamenes.core.errors import (
     ApiTimeoutError,
     AuthorizationError,
     NotFoundError,
+    PdfDestinationError,
     SessionExpiredError,
     ValidationError,
 )
@@ -24,6 +25,9 @@ from esiqie_dictamenes.features.dictamenes.models import (
 )
 from esiqie_dictamenes.features.dictamenes.pdf import format_session_date
 from esiqie_dictamenes.features.dictamenes.views import buscar, modificar
+from esiqie_dictamenes.infrastructure.pdf.document_store import (
+    LocalPdfDocumentStore,
+)
 from tests.helpers import authenticated_store, authenticated_user, build_test_services
 
 
@@ -612,6 +616,29 @@ def test_update_pdf_workflow_validates_destination_before_put():
     assert controller.update_calls == []
     assert controller.generate_calls == []
     assert store.save_calls == []
+
+
+@pytest.mark.parametrize("destination", ["dictamen", "dictamen.pdf"])
+def test_update_pdf_workflow_rejects_relative_destination_before_put(
+    destination,
+):
+    controller = _UpdateController(
+        _record(text="DICTAMEN ACTUALIZADO"),
+        generate_error=RuntimeError("stop"),
+    )
+    store = LocalPdfDocumentStore()
+
+    with pytest.raises(PdfDestinationError):
+        asyncio.run(
+            _update_pdf_workflow_with(
+                controller,
+                store,
+                selector=_UpdateSelector(destination),
+            )
+        )
+
+    assert controller.update_calls == []
+    assert controller.generate_calls == []
 
 
 @pytest.mark.parametrize(

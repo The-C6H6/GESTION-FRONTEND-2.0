@@ -18,6 +18,8 @@ class LocalPdfDocumentStore:
 
     def validate_destination(self, destination: str | Path) -> Path:
         target = Path(destination)
+        if not target.is_absolute():
+            raise PdfDestinationError()
         if target.is_dir() or not target.parent.is_dir():
             raise PdfDestinationError()
         if not target.suffix:
