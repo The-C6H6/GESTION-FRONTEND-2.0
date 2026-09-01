@@ -15,12 +15,13 @@ from esiqie_dictamenes.features.dictamenes.models import (
     Dictamen,
     DictamenFilter,
     DictamenPage,
+    GeneratedDocument,
     MateriaReprobada,
+    PdfRequest,
 )
 from esiqie_dictamenes.infrastructure.demo.alumno_repository import DemoAlumnoRepository
 from esiqie_dictamenes.infrastructure.demo.dictamen_repository import DemoDictamenRepository
-from esiqie_dictamenes.infrastructure.demo.pdf_generator import DemoPdfGenerator
-from tests.helpers import authenticated_store
+from tests.helpers import RecordingPdfGenerator, authenticated_store
 
 
 def build_controller():
@@ -28,7 +29,7 @@ def build_controller():
     return DictamenController(
         DemoDictamenRepository(),
         DemoAlumnoRepository(),
-        DemoPdfGenerator(),
+        RecordingPdfGenerator(),
         require_admin=store.require_admin,
     )
 
@@ -71,7 +72,7 @@ def test_enrolled_source_uses_only_the_enrolled_student_repository():
     controller = DictamenController(
         DemoDictamenRepository(),
         EnrolledRepository(),
-        DemoPdfGenerator(),
+        RecordingPdfGenerator(),
         require_admin=authenticated_store().require_admin,
         reprobado_repository=RejectingReprobadoRepository(),
     )
@@ -112,7 +113,7 @@ def test_failed_source_uses_only_reprobados_and_builds_its_own_student():
     controller = DictamenController(
         DemoDictamenRepository(),
         RejectingInscritoRepository(),
-        DemoPdfGenerator(),
+        RecordingPdfGenerator(),
         require_admin=authenticated_store().require_admin,
         reprobado_repository=reprobados,
     )
@@ -142,7 +143,7 @@ def test_failed_source_reports_an_empty_page_without_falling_back_to_inscritos()
     controller = DictamenController(
         DemoDictamenRepository(),
         RejectingInscritoRepository(),
-        DemoPdfGenerator(),
+        RecordingPdfGenerator(),
         require_admin=authenticated_store().require_admin,
         reprobado_repository=EmptyReprobadoRepository(),
     )
@@ -243,7 +244,7 @@ def test_delete_rejects_an_empty_selection():
     controller = DictamenController(
         DemoDictamenRepository(),
         DemoAlumnoRepository(),
-        DemoPdfGenerator(),
+        RecordingPdfGenerator(),
         require_admin=authenticated_store().require_admin,
         delete_repository=RejectingDeleteRepository(),
     )
@@ -268,7 +269,7 @@ def test_delete_uses_unique_keys_from_selected_domain_entities():
     controller = DictamenController(
         DemoDictamenRepository(),
         DemoAlumnoRepository(),
-        DemoPdfGenerator(),
+        RecordingPdfGenerator(),
         require_admin=authenticated_store().require_admin,
         delete_repository=delete_repository,
     )
@@ -318,7 +319,7 @@ def test_paginated_search_converts_page_number_to_skip_and_preserves_filter():
     controller = DictamenController(
         DemoDictamenRepository(),
         DemoAlumnoRepository(),
-        DemoPdfGenerator(),
+        RecordingPdfGenerator(),
         require_admin=authenticated_store().require_admin,
         search_repository=search_repository,
     )
@@ -379,7 +380,7 @@ def test_real_update_changes_only_dictaminacion_after_repository_success():
     controller = DictamenController(
         DemoDictamenRepository(),
         DemoAlumnoRepository(),
-        DemoPdfGenerator(),
+        RecordingPdfGenerator(),
         require_admin=authenticated_store().require_admin,
         update_repository=update_repository,
     )
@@ -417,7 +418,7 @@ def test_real_update_rejects_empty_or_non_string_values_without_a_put(value):
     controller = DictamenController(
         DemoDictamenRepository(),
         DemoAlumnoRepository(),
-        DemoPdfGenerator(),
+        RecordingPdfGenerator(),
         require_admin=authenticated_store().require_admin,
         update_repository=RejectingUpdateRepository(),
     )
@@ -435,7 +436,7 @@ def test_real_update_skips_put_when_dictaminacion_is_unchanged():
     controller = DictamenController(
         DemoDictamenRepository(),
         DemoAlumnoRepository(),
-        DemoPdfGenerator(),
+        RecordingPdfGenerator(),
         require_admin=authenticated_store().require_admin,
         update_repository=RejectingUpdateRepository(),
     )
@@ -481,7 +482,7 @@ def test_real_update_rejects_backend_changes_to_immutable_metadata(changed_field
     controller = DictamenController(
         DemoDictamenRepository(),
         DemoAlumnoRepository(),
-        DemoPdfGenerator(),
+        RecordingPdfGenerator(),
         require_admin=authenticated_store().require_admin,
         update_repository=InvalidUpdateRepository(),
     )
@@ -490,14 +491,101 @@ def test_real_update_rejects_backend_changes_to_immutable_metadata(changed_field
         asyncio.run(controller.update_dictaminacion(current, "Nuevo valor"))
 
 
-def test_update_generates_a_new_pdf_simulation_automatically():
+def test_generate_pdf_calls_the_generator_once_and_returns_the_exact_document():
+    document = GeneratedDocument(
+        filename="2024320678_dictamen_2026-08-30.pdf",
+        content=b"%PDF-1.7 test",
+        is_simulation=False,
+    )
+    pdf_generator = RecordingPdfGenerator(document)
+    controller = DictamenController(
+        DemoDictamenRepository(),
+        DemoAlumnoRepository(),
+        pdf_generator,
+        require_admin=authenticated_store().require_admin,
+    )
+    request = PdfRequest(
+        dictamen=Dictamen(
+            "D-00132",
+            "2024320678",
+            "Ana L\u00f3pez Mart\u00ednez",
+            date(2026, 8, 30),
+            2026,
+            "Nueva causa",
+        ),
+        director="Dra. Mar\u00eda Del Carmen",
+        fecha_sesion=date(2026, 12, 11),
+    )
+
+    result = asyncio.run(controller.generate_pdf(request))
+
+    assert result is document
+    assert pdf_generator.calls == [request]
+
+
+def test_prepare_updated_pdf_request_uses_the_final_dictamen_and_captured_pdf_context():
     controller = build_controller()
+    updated = Dictamen(
+        "CSE-0001-26",
+        "2024320678",
+        "Ana L\u00f3pez Mart\u00ednez",
+        date(2026, 8, 30),
+        2026,
+        "Nueva causa final",
+    )
 
-    result = asyncio.run(controller.update_and_generate("D-00132", "Nueva causa"))
+    request = controller.prepare_updated_pdf_request(
+        updated,
+        director="  Dra. Mar\u00eda Del Carmen  ",
+        fecha_sesion=date(2026, 12, 11),
+    )
 
-    assert result.dictamen.dictaminacion == "Nueva causa"
-    assert result.document.filename == "2024320678_dictamen.pdf"
-    assert result.document.is_simulation is True
+    assert request.dictamen is updated
+    assert request.director == "Dra. Mar\u00eda Del Carmen"
+    assert request.fecha_sesion == date(2026, 12, 11)
+    assert request.materias == ()
+
+
+def test_prepare_updated_pdf_request_rejects_a_blank_director():
+    controller = build_controller()
+    updated = asyncio.run(DemoDictamenRepository().get("D-00132"))
+
+    with pytest.raises(ValidationError, match="director|Director"):
+        controller.prepare_updated_pdf_request(
+            updated,
+            director="   ",
+            fecha_sesion=date(2026, 12, 11),
+        )
+
+
+def test_prepare_updated_pdf_request_rejects_an_invalid_session_date():
+    controller = build_controller()
+    updated = asyncio.run(DemoDictamenRepository().get("D-00132"))
+
+    with pytest.raises(ValidationError, match="fecha de sesi"):
+        controller.prepare_updated_pdf_request(
+            updated,
+            director="Dra. Mar\u00eda Del Carmen",
+            fecha_sesion="11 DE DICIEMBRE",
+        )
+
+
+def test_prepare_updated_pdf_request_requires_admin_before_validation():
+    normal_store = authenticated_store(is_admin=False)
+    controller = DictamenController(
+        DemoDictamenRepository(),
+        DemoAlumnoRepository(),
+        RecordingPdfGenerator(),
+        require_admin=normal_store.require_admin,
+    )
+    updated = asyncio.run(DemoDictamenRepository().get("D-00132"))
+
+    with pytest.raises(AuthorizationError):
+        controller.prepare_updated_pdf_request(
+            updated,
+            director="   ",
+            fecha_sesion="11 DE DICIEMBRE",
+        )
 
 
 class RecordingMutationRepository:
@@ -525,7 +613,7 @@ class RecordingMutationRepository:
         return len(claves)
 
 
-class RecordingPdfGenerator:
+class RejectingGenerationPdfGenerator:
     def __init__(self):
         self.calls = []
 
@@ -540,7 +628,7 @@ class RecordingPdfGenerator:
         "create",
         "update",
         "update_dictaminacion",
-        "update_and_generate",
+        "prepare_updated_pdf_request",
         "delete_dictamenes",
     ],
 )
@@ -549,7 +637,7 @@ def test_normal_user_mutations_are_rejected_before_any_collaborator(operation):
     current = asyncio.run(base_repository.get("D-00132"))
     alumno = asyncio.run(DemoAlumnoRepository().get_inscrito("2024320678"))
     repository = RecordingMutationRepository(current)
-    pdf_generator = RecordingPdfGenerator()
+    pdf_generator = RejectingGenerationPdfGenerator()
     normal_store = authenticated_store(is_admin=False)
     controller = DictamenController(
         repository,
@@ -577,8 +665,12 @@ def test_normal_user_mutations_are_rejected_before_any_collaborator(operation):
             asyncio.run(controller.update(current.clave, "Nueva causa"))
         elif operation == "update_dictaminacion":
             asyncio.run(controller.update_dictaminacion(current, "Nueva causa"))
-        elif operation == "update_and_generate":
-            asyncio.run(controller.update_and_generate(current.clave, "Nueva causa"))
+        elif operation == "prepare_updated_pdf_request":
+            controller.prepare_updated_pdf_request(
+                current,
+                director="Direcci\u00f3n ESIQIE",
+                fecha_sesion=date(2026, 12, 11),
+            )
         else:
             asyncio.run(controller.delete_dictamenes((current,)))
 
@@ -591,7 +683,7 @@ def test_normal_user_can_query_student_candidates():
     controller = DictamenController(
         DemoDictamenRepository(),
         DemoAlumnoRepository(),
-        DemoPdfGenerator(),
+        RecordingPdfGenerator(),
         require_admin=normal_store.require_admin,
     )
 
@@ -607,7 +699,7 @@ def test_normal_user_can_query_ruling_pages():
     controller = DictamenController(
         DemoDictamenRepository(),
         DemoAlumnoRepository(),
-        DemoPdfGenerator(),
+        RecordingPdfGenerator(),
         require_admin=normal_store.require_admin,
     )
 

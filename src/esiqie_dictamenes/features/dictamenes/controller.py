@@ -49,12 +49,6 @@ class StudentCandidate:
     total_reprobadas: int
 
 
-@dataclass(frozen=True)
-class UpdatedDictamen:
-    dictamen: Dictamen
-    document: GeneratedDocument
-
-
 class DictamenController:
     def __init__(
         self,
@@ -217,18 +211,27 @@ class DictamenController:
             raise UnexpectedResponseError()
         return updated
 
-    async def update_and_generate(
-        self, clave: str, dictaminacion: str
-    ) -> UpdatedDictamen:
+    def prepare_updated_pdf_request(
+        self,
+        dictamen: Dictamen,
+        *,
+        director: object,
+        fecha_sesion: object,
+    ) -> PdfRequest:
         self._require_admin()
-        dictamen = await self._update(clave, dictaminacion)
-        request = PdfRequest(
+        if not isinstance(director, str) or not director.strip():
+            raise ValidationError("El director es obligatorio.")
+        if not isinstance(fecha_sesion, date):
+            raise ValidationError("Selecciona la fecha de sesión en el calendario.")
+        return PdfRequest(
             dictamen=dictamen,
-            director="Dirección ESIQIE",
-            fecha_sesion=dictamen.fecha,
+            director=director.strip(),
+            fecha_sesion=fecha_sesion,
+            materias=(),
         )
-        document = await self._pdf_generator.generate(request)
-        return UpdatedDictamen(dictamen, document)
+
+    async def generate_pdf(self, request: PdfRequest) -> GeneratedDocument:
+        return await self._pdf_generator.generate(request)
 
     async def create(
         self,

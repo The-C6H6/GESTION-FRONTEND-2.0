@@ -7,8 +7,20 @@ import pytest
 
 from esiqie_dictamenes.core.errors import AuthorizationError
 from esiqie_dictamenes.core.services import build_services
-from esiqie_dictamenes.features.dictamenes.models import Dictamen, DictamenFilter
-from tests.helpers import api_settings, build_test_services
+from esiqie_dictamenes.features.dictamenes.models import (
+    Dictamen,
+    DictamenFilter,
+    GeneratedDocument,
+    PdfRequest,
+)
+from esiqie_dictamenes.infrastructure.pdf.document_store import LocalPdfDocumentStore
+from esiqie_dictamenes.infrastructure.pdf.generator import RealPdfGenerator
+from tests.helpers import (
+    RecordingPdfDocumentStore,
+    RecordingPdfGenerator,
+    api_settings,
+    build_test_services,
+)
 from tests.infrastructure.http.test_inscrito_repository import INSCRITO_RESPONSE
 from tests.infrastructure.http.test_reprobado_repository import (
     REPROBADO_ITEM,
@@ -33,6 +45,71 @@ def test_test_services_do_not_share_mutable_state_between_sessions():
     assert first.dictamen_repository is not second.dictamen_repository
     assert first.auth_repository is not second.auth_repository
     assert first.auth_session is not second.auth_session
+    assert first.document_store is not second.document_store
+
+
+def test_test_services_inject_fake_pdf_collaborators_without_local_writes():
+    document = GeneratedDocument(
+        filename="fake.pdf",
+        content=b"%PDF-test",
+        is_simulation=False,
+    )
+    pdf_generator = RecordingPdfGenerator(document)
+    document_store = RecordingPdfDocumentStore("memory-output.pdf")
+    services = build_test_services(
+        pdf_generator=pdf_generator,
+        document_store=document_store,
+    )
+    request = PdfRequest(
+        dictamen=Dictamen(
+            "D-00132",
+            "2024320678",
+            "Ana L\u00f3pez Mart\u00ednez",
+            date(2026, 8, 30),
+            2026,
+            "Nueva causa",
+        ),
+        director="Dra. Mar\u00eda Del Carmen",
+        fecha_sesion=date(2026, 12, 11),
+    )
+
+    result = asyncio.run(services.dictamen_controller.generate_pdf(request))
+    saved_path = asyncio.run(
+        services.document_store.save("selected.pdf", result.content)
+    )
+
+    assert result is document
+    assert pdf_generator.calls == [request]
+    assert services.document_store is document_store
+    assert document_store.save_calls == [("selected.pdf", b"%PDF-test")]
+    assert saved_path.name == "memory-output.pdf"
+
+
+def test_production_services_wire_real_pdf_generation_and_local_storage():
+    services = build_services(
+        settings=api_settings(),
+        transport=httpx.MockTransport(lambda request: httpx.Response(500)),
+    )
+    request = PdfRequest(
+        dictamen=Dictamen(
+            "CSE-0001-26",
+            "2021320863",
+            "Ana L\u00f3pez Mart\u00ednez",
+            date(2026, 8, 30),
+            2026,
+            "Art\u00edculo 56",
+        ),
+        director="Dra. Mar\u00eda Del Carmen",
+        fecha_sesion=date(2026, 12, 11),
+    )
+
+    document = asyncio.run(services.dictamen_controller.generate_pdf(request))
+
+    assert isinstance(services.document_store, LocalPdfDocumentStore)
+    assert isinstance(services.dictamen_controller._pdf_generator, RealPdfGenerator)
+    assert document.filename == "2021320863_dictamen_2026-08-30.pdf"
+    assert document.content.startswith(b"%PDF-")
+    assert document.is_simulation is False
 
 
 def test_production_services_establish_the_api_identity_and_shared_session():
