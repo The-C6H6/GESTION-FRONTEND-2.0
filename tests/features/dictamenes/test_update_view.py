@@ -618,7 +618,6 @@ def test_update_pdf_workflow_validates_destination_before_put():
     ("field", "value", "expected_message"),
     [
         ("dictaminacion", "  ", f"La {_DICTAMINACION} es obligatoria."),
-        ("dictaminacion", "  DICTAMEN ORIGINAL  ", "No hay cambios por guardar."),
         ("director", "  ", "El director es obligatorio."),
         (
             "fecha_sesion",
@@ -644,6 +643,30 @@ def test_update_pdf_workflow_rejects_invalid_input_before_selector(
     assert str(excinfo.value) == expected_message
     assert selector.calls == []
     assert controller.update_calls == []
+
+
+def test_update_pdf_workflow_unchanged_dictaminacion_is_a_neutral_no_op():
+    controller = _UpdateController(_record(text="DICTAMEN ACTUALIZADO"))
+    store = _UpdateStore()
+    selector = _UpdateSelector("C:/tmp/actualizado.pdf")
+
+    result = asyncio.run(
+        _update_pdf_workflow_with(
+            controller,
+            store,
+            selector=selector,
+            dictaminacion="  DICTAMEN ORIGINAL  ",
+        )
+    )
+
+    assert result.no_op is True
+    assert result.cancelled is False
+    assert result.pdf_saved is False
+    assert result.message == "No hay cambios por guardar."
+    assert selector.calls == []
+    assert controller.update_calls == []
+    assert controller.generate_calls == []
+    assert store.save_calls == []
 
 
 def test_update_pdf_workflow_cancel_has_no_put_or_output():
@@ -788,3 +811,36 @@ def test_update_pdf_failure_message_uses_safe_copy_and_selected_destination():
         f"cualquier otra {_ACCION}."
     ) in message
     assert "Ruta seleccionada: C:\\tmp\\actualizado.pdf." in message
+
+
+def test_update_result_consumer_keeps_no_op_feedback_neutral():
+    messages = []
+    errors = []
+
+    buscar._consume_update_pdf_result(
+        buscar.UpdatePdfResult(
+            updated=None,
+            no_op=True,
+            message="No hay cambios por guardar.",
+        ),
+        messages.append,
+        errors.append,
+    )
+
+    assert messages == ["No hay cambios por guardar."]
+    assert errors == [False]
+
+
+def test_update_touched_files_do_not_contain_mojibake_markers():
+    repo_root = Path(__file__).resolve().parents[3]
+    touched_files = (
+        repo_root / "src/esiqie_dictamenes/features/dictamenes/views/buscar.py",
+        repo_root / "src/esiqie_dictamenes/features/dictamenes/views/pdf_output.py",
+        repo_root / "NOTES.md",
+    )
+
+    for path in touched_files:
+        content = path.read_text(encoding="utf-8")
+        assert "Ã" not in content
+        assert "Â" not in content
+        assert "ƒ" not in content

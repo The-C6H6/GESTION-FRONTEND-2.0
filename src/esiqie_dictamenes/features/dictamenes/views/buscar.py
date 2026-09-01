@@ -164,20 +164,16 @@ async def _update_pdf_workflow(
     if not isinstance(dictaminacion, str) or not dictaminacion.strip():
         raise ValueError("La dictaminación es obligatoria.")
     normalized = dictaminacion.strip()
-    if normalized == current.dictaminacion:
-        raise ValueError("No hay cambios por guardar.")
     if not isinstance(director, str) or not director.strip():
         raise ValueError("El director es obligatorio.")
     if not isinstance(fecha_sesion, date):
         raise ValueError("Selecciona la fecha de sesión en el calendario.")
-    if not isinstance(dictaminacion, str) or not dictaminacion.strip():
-        raise ValueError("La dictaminaciÃ³n es obligatoria.")
     if normalized == current.dictaminacion:
-        raise ValueError("No hay cambios por guardar.")
-    if not isinstance(director, str) or not director.strip():
-        raise ValueError("El director es obligatorio.")
-    if not isinstance(fecha_sesion, date):
-        raise ValueError("Selecciona la fecha de sesiÃ³n en el calendario.")
+        return UpdatePdfResult(
+            updated=None,
+            no_op=True,
+            message="No hay cambios por guardar.",
+        )
 
     require_desktop_pdf_output(page)
     selected = selector_result(selector, current)
@@ -217,6 +213,18 @@ async def _update_pdf_workflow(
         pdf_saved=True,
         message=updated_pdf_message(updated.clave, saved_path),
     )
+
+
+def _consume_update_pdf_result(
+    result: UpdatePdfResult,
+    set_message: Callable[[str], None],
+    set_has_error: Callable[[bool], None],
+) -> None:
+    """Apply a completed update workflow result to the visible feedback state."""
+    if result.cancelled:
+        return
+    set_message(result.message)
+    set_has_error(not result.pdf_saved and not result.no_op)
 
 
 async def _load_update(
@@ -569,9 +577,7 @@ def DictamenSearchView() -> ft.Control:
                     fecha_sesion=edit_fecha_sesion,
                     commit=commit_update,
                 )
-                if not output.cancelled:
-                    set_message(output.message)
-                    set_has_error(not output.pdf_saved)
+                _consume_update_pdf_result(output, set_message, set_has_error)
             except ValueError as error:
                 set_message(str(error))
                 set_has_error(True)

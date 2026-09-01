@@ -70,6 +70,7 @@ class UpdatePdfResult:
     updated: Dictamen | None
     saved_path: Path | str | None = None
     cancelled: bool = False
+    no_op: bool = False
     pdf_saved: bool = False
     message: str = ""
 
