@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import flet as ft
 
@@ -28,8 +28,8 @@ def require_desktop_pdf_output(page: Any) -> None:
         platform=getattr(page, "platform", None),
     ):
         raise ValueError(
-            "La generación y guardado de PDF está disponible únicamente en "
-            "la aplicación de escritorio."
+            "La generaci\u00f3n y guardado de PDF est\u00e1 disponible "
+            "\u00fanicamente en la aplicaci\u00f3n de escritorio."
         )
 
 
@@ -63,6 +63,17 @@ class CreatePdfResult:
     message: str = ""
 
 
+@dataclass(frozen=True)
+class UpdatePdfResult:
+    """Outcome of a staged update plus PDF output workflow."""
+
+    updated: Dictamen | None
+    saved_path: Path | str | None = None
+    cancelled: bool = False
+    pdf_saved: bool = False
+    message: str = ""
+
+
 def selector_result(selector: Any, dictamen: Dictamen) -> Any:
     """Return a selector result while allowing simple recording test doubles."""
     if hasattr(selector, "select"):
@@ -74,10 +85,31 @@ def post_mutation_pdf_failure_message(clave: str) -> str:
     return (
         f"Dictamen creado correctamente. Clave: {clave}. "
         "El PDF no se pudo guardar; conserva esta clave y verifica el "
-        "dictamen antes de intentar cualquier otra acción."
+        "dictamen antes de intentar cualquier otra acci\u00f3n."
     )
 
 
 def saved_pdf_message(clave: str, path: Path | str) -> str:
-    return f"Dictamen creado correctamente. Clave: {clave}. PDF guardado en: {path}"
+    return (
+        f"Dictamen creado correctamente. Clave: {clave}. "
+        f"PDF guardado en: {path}"
+    )
 
+
+def post_update_pdf_failure_message(
+    clave: str,
+    destination: Path | str | None = None,
+) -> str:
+    suffix = f" Ruta seleccionada: {destination}." if destination else ""
+    return (
+        f"Dictamen actualizado correctamente. Clave: {clave}. "
+        "El PDF no se pudo guardar; verifica el dictamen antes de intentar "
+        f"cualquier otra acci\u00f3n.{suffix}"
+    )
+
+
+def updated_pdf_message(clave: str, path: Path | str) -> str:
+    return (
+        f"Dictamen actualizado correctamente. Clave: {clave}. "
+        f"PDF guardado en: {path}"
+    )

@@ -183,3 +183,17 @@ def test_modify_selection_action_is_disabled_during_a_page_request():
     action = actions.controls[0]
 
     assert action.disabled is True
+
+
+def test_all_mutating_row_actions_are_disabled_while_update_is_open():
+    actions = buscar._build_selection_actions(
+        authenticated_user(is_admin=True),
+        busy=False,
+        has_results=True,
+        editing=True,
+        selected_count=1,
+        on_edit=lambda: None,
+        on_delete=lambda: None,
+    )
+
+    assert [action.disabled for action in actions.controls] == [True, True]

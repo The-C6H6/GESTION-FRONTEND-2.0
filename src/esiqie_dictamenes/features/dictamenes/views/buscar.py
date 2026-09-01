@@ -1,4 +1,6 @@
 from collections.abc import Callable
+from datetime import date
+from inspect import isawaitable
 
 import flet as ft
 
@@ -19,6 +21,8 @@ from esiqie_dictamenes.features.dictamenes.models import (
     DictamenPage,
 )
 from esiqie_dictamenes.features.dictamenes.views.crear import (
+    _as_date,
+    _build_session_date_picker,
     _run_guarded_request,
 )
 from esiqie_dictamenes.features.dictamenes.views.eliminar import (
@@ -31,6 +35,15 @@ from esiqie_dictamenes.features.dictamenes.views.eliminar import (
     _selected_records,
 )
 from esiqie_dictamenes.features.dictamenes.views.modificar import _build_edit_form
+from esiqie_dictamenes.features.dictamenes.views.pdf_output import (
+    FletPdfDestinationSelector,
+    UpdatePdfResult,
+    post_update_pdf_failure_message,
+    require_desktop_pdf_output,
+    selector_result,
+    updated_pdf_message,
+    use_file_picker,
+)
 from esiqie_dictamenes.shared.components.feedback import feedback
 from esiqie_dictamenes.shared.components.page_header import page_header
 from esiqie_dictamenes.shared.request_gate import RequestGate as _RequestGate
@@ -132,6 +145,77 @@ def _replace_updated_record(
             updated if record.clave == updated.clave else record
             for record in page.items
         ),
+    )
+
+
+async def _update_pdf_workflow(
+    *,
+    page,
+    selector,
+    services,
+    current: Dictamen,
+    dictaminacion: str,
+    director: str,
+    fecha_sesion: date,
+    commit: Callable[[Dictamen], None],
+) -> UpdatePdfResult:
+    """Run UPDATE's destination, mutation, generation, and save stages."""
+    services.auth_session.require_admin()
+    if not isinstance(dictaminacion, str) or not dictaminacion.strip():
+        raise ValueError("La dictaminación es obligatoria.")
+    normalized = dictaminacion.strip()
+    if normalized == current.dictaminacion:
+        raise ValueError("No hay cambios por guardar.")
+    if not isinstance(director, str) or not director.strip():
+        raise ValueError("El director es obligatorio.")
+    if not isinstance(fecha_sesion, date):
+        raise ValueError("Selecciona la fecha de sesión en el calendario.")
+    if not isinstance(dictaminacion, str) or not dictaminacion.strip():
+        raise ValueError("La dictaminaciÃ³n es obligatoria.")
+    if normalized == current.dictaminacion:
+        raise ValueError("No hay cambios por guardar.")
+    if not isinstance(director, str) or not director.strip():
+        raise ValueError("El director es obligatorio.")
+    if not isinstance(fecha_sesion, date):
+        raise ValueError("Selecciona la fecha de sesiÃ³n en el calendario.")
+
+    require_desktop_pdf_output(page)
+    selected = selector_result(selector, current)
+    if isawaitable(selected):
+        selected = await selected
+    if not selected:
+        return UpdatePdfResult(updated=None, cancelled=True)
+
+    destination = services.document_store.validate_destination(selected)
+    updated = await services.dictamen_controller.update_dictaminacion(
+        current,
+        normalized,
+    )
+    commit(updated)
+
+    try:
+        request = services.dictamen_controller.prepare_updated_pdf_request(
+            updated,
+            director=director,
+            fecha_sesion=fecha_sesion,
+        )
+        document = await services.dictamen_controller.generate_pdf(request)
+        saved_path = await services.document_store.save(
+            destination,
+            document.content,
+        )
+    except Exception:
+        return UpdatePdfResult(
+            updated=updated,
+            pdf_saved=False,
+            message=post_update_pdf_failure_message(updated.clave, destination),
+        )
+
+    return UpdatePdfResult(
+        updated=updated,
+        saved_path=saved_path,
+        pdf_saved=True,
+        message=updated_pdf_message(updated.clave, saved_path),
     )
 
 
@@ -326,15 +410,38 @@ def DictamenSearchView() -> ft.Control:
     pending_delete, set_pending_delete = ft.use_state(())
     editing_record, set_editing_record = ft.use_state(None)
     edit_value, set_edit_value = ft.use_state("")
+    edit_director, set_edit_director = ft.use_state("")
+    edit_fecha_sesion, set_edit_fecha_sesion = ft.use_state(date.today())
+    show_edit_date_picker, set_show_edit_date_picker = ft.use_state(False)
     busy, set_busy = ft.use_state(False)
     message, set_message = ft.use_state("")
     has_error, set_has_error = ft.use_state(False)
+    pdf_picker = use_file_picker()
 
     def clear_selection() -> None:
         set_selected_keys(frozenset())
         set_pending_delete(())
         set_editing_record(None)
         set_edit_value("")
+        set_edit_director("")
+        set_edit_fecha_sesion(date.today())
+        set_show_edit_date_picker(False)
+
+    def select_edit_session_date(event: ft.Event[ft.DatePicker]) -> None:
+        if event.control.value is not None:
+            set_edit_fecha_sesion(_as_date(event.control.value))
+        set_show_edit_date_picker(False)
+
+    edit_date_picker = _build_session_date_picker(
+        edit_fecha_sesion,
+        on_change=select_edit_session_date,
+        on_dismiss=lambda _event: set_show_edit_date_picker(False),
+    )
+    edit_date_dialog = (
+        edit_date_picker
+        if user.is_admin and editing_record is not None and show_edit_date_picker
+        else None
+    )
 
     def commit_page(
         filters: DictamenFilter,
@@ -408,6 +515,8 @@ def DictamenSearchView() -> ft.Control:
             selected = _selected_record(records, selected_keys)
             set_editing_record(selected)
             set_edit_value(selected.dictaminacion)
+            set_edit_director("")
+            set_edit_fecha_sesion(date.today())
             set_message("")
             set_has_error(False)
 
@@ -450,18 +559,22 @@ def DictamenSearchView() -> ft.Control:
 
         async def operation() -> None:
             try:
-                changed = await _load_update(
-                    context.services.dictamen_controller,
-                    editing_record,
-                    edit_value,
-                    commit_update,
-                    require_admin=(
-                        context.services.auth_session.require_admin
-                    ),
+                output = await _update_pdf_workflow(
+                    page=ft.context.page,
+                    selector=FletPdfDestinationSelector(pdf_picker),
+                    services=context.services,
+                    current=editing_record,
+                    dictaminacion=edit_value,
+                    director=edit_director,
+                    fecha_sesion=edit_fecha_sesion,
+                    commit=commit_update,
                 )
-                if not changed:
-                    set_message("No hay cambios por guardar.")
-                    set_has_error(False)
+                if not output.cancelled:
+                    set_message(output.message)
+                    set_has_error(not output.pdf_saved)
+            except ValueError as error:
+                set_message(str(error))
+                set_has_error(True)
             except Exception as error:
                 set_message(
                     _update_error_message(
@@ -548,7 +661,7 @@ def DictamenSearchView() -> ft.Control:
             on_cancel=lambda: set_pending_delete(()),
             on_confirm=confirm_delete,
         )
-    ft.use_dialog(delete_dialog)
+    ft.use_dialog(delete_dialog or edit_date_dialog)
 
     pagination = ft.Container()
     records = ()
@@ -589,8 +702,12 @@ def DictamenSearchView() -> ft.Control:
             content=_build_edit_form(
                 record=editing_record,
                 value=edit_value,
+                director=edit_director,
+                fecha_sesion=edit_fecha_sesion,
                 busy=busy,
                 on_value=lambda event: set_edit_value(event.control.value),
+                on_director=lambda event: set_edit_director(event.control.value),
+                on_date=lambda: set_show_edit_date_picker(True),
                 on_save=save_update,
                 on_cancel=clear_selection,
             ),

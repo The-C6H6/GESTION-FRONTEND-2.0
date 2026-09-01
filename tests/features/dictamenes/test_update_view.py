@@ -1,5 +1,7 @@
 import asyncio
 from datetime import date
+from pathlib import Path
+from types import SimpleNamespace
 
 import flet as ft
 import pytest
@@ -14,9 +16,24 @@ from esiqie_dictamenes.core.errors import (
     ValidationError,
 )
 from esiqie_dictamenes.core.routes import RoutePath
-from esiqie_dictamenes.features.dictamenes.models import Dictamen, DictamenPage
+from esiqie_dictamenes.features.dictamenes.models import (
+    Dictamen,
+    DictamenPage,
+    GeneratedDocument,
+    PdfRequest,
+)
+from esiqie_dictamenes.features.dictamenes.pdf import format_session_date
 from esiqie_dictamenes.features.dictamenes.views import buscar, modificar
 from tests.helpers import authenticated_store, authenticated_user, build_test_services
+
+
+def _utf8(value: bytes) -> str:
+    return value.decode("utf-8")
+
+
+_DICTAMINACION = _utf8(b"dictaminaci\xc3\xb3n")
+_SESION = _utf8(b"sesi\xc3\xb3n")
+_ACCION = _utf8(b"acci\xc3\xb3n")
 
 
 def _record(clave: str = "CSE-0001-26", text: str = "DICTAMEN ORIGINAL"):
@@ -196,6 +213,60 @@ def test_edit_form_disables_field_and_actions_while_saving():
         for control in controls
         if isinstance(control, (ft.TextField, ft.Button))
     )
+
+
+def test_edit_form_captures_director_and_session_date_inputs():
+    form = modificar._build_edit_form(
+        record=_record(),
+        value="DICTAMEN ORIGINAL",
+        director="Dra. Directora",
+        fecha_sesion=date(2026, 8, 30),
+        busy=False,
+        on_value=lambda _event: None,
+        on_director=lambda _event: None,
+        on_date=lambda: None,
+        on_save=lambda: None,
+        on_cancel=lambda: None,
+    )
+    fields = [
+        control
+        for control in _descendants(form)
+        if isinstance(control, ft.TextField)
+    ]
+
+    assert [field.label for field in fields] == [
+        "Nombre del director",
+        f"Fecha de {_SESION}",
+        _utf8(b"Dictaminaci\xc3\xb3n"),
+    ]
+    assert [field.value for field in fields] == [
+        "Dra. Directora",
+        format_session_date(date(2026, 8, 30)),
+        "DICTAMEN ORIGINAL",
+    ]
+    assert fields[1].read_only is True
+
+
+def test_edit_form_explains_that_director_and_session_date_are_pdf_only():
+    form = modificar._build_edit_form(
+        record=_record(),
+        value="DICTAMEN ORIGINAL",
+        director="Dra. Directora",
+        fecha_sesion=date(2026, 8, 30),
+        busy=False,
+        on_value=lambda _event: None,
+        on_director=lambda _event: None,
+        on_date=lambda: None,
+        on_save=lambda: None,
+        on_cancel=lambda: None,
+    )
+
+    texts = [control.value for control in _descendants(form) if isinstance(control, ft.Text)]
+
+    assert (
+        f"Solo la {_DICTAMINACION} modifica el registro; "
+        "director y fecha se usan para el PDF."
+    ) in texts
 
 
 def test_successful_update_replaces_only_current_page_item_and_keeps_pagination():
@@ -401,3 +472,319 @@ def build_test_context():
         session=session,
         set_session=lambda _session: None,
     )
+
+
+class _UpdateSelector:
+    def __init__(self, destination):
+        self.destination = destination
+        self.calls = []
+
+    async def select(self, record):
+        self.calls.append(record)
+        return self.destination
+
+
+class _UpdateController:
+    def __init__(self, updated=None, *, update_error=None, generate_error=None):
+        self.updated = updated
+        self.update_error = update_error
+        self.generate_error = generate_error
+        self.events = []
+        self.update_calls = []
+        self.prepare_calls = []
+        self.generate_calls = []
+
+    async def update_dictaminacion(self, current, value):
+        self.events.append("put")
+        self.update_calls.append((current, value))
+        if self.update_error:
+            raise self.update_error
+        return self.updated
+
+    def prepare_updated_pdf_request(self, dictamen, *, director, fecha_sesion):
+        self.events.append("prepare")
+        self.prepare_calls.append((dictamen, director, fecha_sesion))
+        return PdfRequest(
+            dictamen=dictamen,
+            director=director,
+            fecha_sesion=fecha_sesion,
+            materias=(),
+        )
+
+    async def generate_pdf(self, request):
+        self.events.append("generate")
+        self.generate_calls.append(request)
+        if self.generate_error:
+            raise self.generate_error
+        return GeneratedDocument("updated.pdf", b"%PDF", False)
+
+
+class _UpdateStore:
+    def __init__(self, *, validate_error=None, save_error=None):
+        self.validate_error = validate_error
+        self.save_error = save_error
+        self.events = []
+        self.validate_calls = []
+        self.save_calls = []
+
+    def validate_destination(self, destination):
+        self.events.append("validate")
+        self.validate_calls.append(destination)
+        if self.validate_error:
+            raise self.validate_error
+        return Path(destination)
+
+    async def save(self, destination, content):
+        self.events.append("save")
+        self.save_calls.append((destination, content))
+        if self.save_error:
+            raise self.save_error
+        return destination
+
+
+def _update_services(controller, store):
+    return SimpleNamespace(
+        auth_session=authenticated_store(),
+        dictamen_controller=controller,
+        document_store=store,
+    )
+
+
+def _update_workflow_kwargs(controller, store, **overrides):
+    values = {
+        "page": SimpleNamespace(web=False, platform=ft.PagePlatform.WINDOWS),
+        "selector": _UpdateSelector("C:/tmp/actualizado.pdf"),
+        "services": _update_services(controller, store),
+        "current": _record(),
+        "dictaminacion": "DICTAMEN ACTUALIZADO",
+        "director": "Dra. Directora",
+        "fecha_sesion": date(2026, 8, 30),
+        "commit": lambda _updated: None,
+    }
+    values.update(overrides)
+    return values
+
+
+async def _update_pdf_workflow_with(controller, store, **overrides):
+    return await buscar._update_pdf_workflow(
+        **_update_workflow_kwargs(controller, store, **overrides)
+    )
+
+
+def test_update_pdf_workflow_orders_stages_and_uses_final_backend_identity():
+    current = _record()
+    updated = _record(text="DICTAMEN ACTUALIZADO")
+    controller = _UpdateController(updated)
+    store = _UpdateStore()
+    events = []
+    selector = _UpdateSelector("C:/tmp/actualizado.pdf")
+    kwargs = _update_workflow_kwargs(
+        controller,
+        store,
+        current=current,
+        selector=selector,
+        commit=lambda value: events.append(("commit", value)),
+    )
+
+    result = asyncio.run(buscar._update_pdf_workflow(**kwargs))
+
+    assert result.updated is updated
+    assert result.pdf_saved is True
+    assert events == [("commit", updated)]
+    assert controller.events == ["put", "prepare", "generate"]
+    assert store.events == ["validate", "save"]
+    assert selector.calls == [current]
+    assert controller.update_calls == [(current, "DICTAMEN ACTUALIZADO")]
+    request = controller.generate_calls[0]
+    assert request.dictamen is updated
+    assert request.director == "Dra. Directora"
+    assert request.fecha_sesion == date(2026, 8, 30)
+    assert request.materias == ()
+
+
+def test_update_pdf_workflow_validates_destination_before_put():
+    controller = _UpdateController(_record(text="DICTAMEN ACTUALIZADO"))
+    store = _UpdateStore(validate_error=ValueError("invalid destination"))
+
+    with pytest.raises(ValueError, match="invalid destination"):
+        asyncio.run(_update_pdf_workflow_with(controller, store))
+
+    assert controller.update_calls == []
+    assert controller.generate_calls == []
+    assert store.save_calls == []
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "expected_message"),
+    [
+        ("dictaminacion", "  ", f"La {_DICTAMINACION} es obligatoria."),
+        ("dictaminacion", "  DICTAMEN ORIGINAL  ", "No hay cambios por guardar."),
+        ("director", "  ", "El director es obligatorio."),
+        (
+            "fecha_sesion",
+            None,
+            f"Selecciona la fecha de {_SESION} en el calendario.",
+        ),
+    ],
+)
+def test_update_pdf_workflow_rejects_invalid_input_before_selector(
+    field,
+    value,
+    expected_message,
+):
+    controller = _UpdateController(_record(text="DICTAMEN ACTUALIZADO"))
+    store = _UpdateStore()
+    selector = _UpdateSelector("C:/tmp/actualizado.pdf")
+    kwargs = _update_workflow_kwargs(controller, store, selector=selector)
+    kwargs[field] = value
+
+    with pytest.raises(ValueError) as excinfo:
+        asyncio.run(buscar._update_pdf_workflow(**kwargs))
+
+    assert str(excinfo.value) == expected_message
+    assert selector.calls == []
+    assert controller.update_calls == []
+
+
+def test_update_pdf_workflow_cancel_has_no_put_or_output():
+    controller = _UpdateController(_record(text="DICTAMEN ACTUALIZADO"))
+    store = _UpdateStore()
+    selector = _UpdateSelector(None)
+
+    result = asyncio.run(
+        _update_pdf_workflow_with(controller, store, selector=selector)
+    )
+
+    assert result.cancelled is True
+    assert controller.update_calls == []
+    assert controller.generate_calls == []
+    assert store.save_calls == []
+
+
+@pytest.mark.parametrize(
+    "page",
+    [
+        SimpleNamespace(web=True, platform=ft.PagePlatform.WINDOWS),
+        SimpleNamespace(web=False, platform=ft.PagePlatform.ANDROID),
+        SimpleNamespace(web=False, platform=ft.PagePlatform.IOS),
+    ],
+)
+def test_update_pdf_workflow_blocks_web_mobile_before_selector(page):
+    controller = _UpdateController(_record(text="DICTAMEN ACTUALIZADO"))
+    store = _UpdateStore()
+    selector = _UpdateSelector("C:/tmp/actualizado.pdf")
+
+    with pytest.raises(ValueError):
+        asyncio.run(
+            _update_pdf_workflow_with(
+                controller,
+                store,
+                page=page,
+                selector=selector,
+            )
+        )
+
+    assert selector.calls == []
+    assert controller.update_calls == []
+
+
+@pytest.mark.parametrize("stage", ["generate", "save"])
+def test_update_pdf_workflow_output_failure_keeps_put_result_without_replay(stage):
+    current = _record()
+    updated = _record(text="DICTAMEN ACTUALIZADO")
+    controller = _UpdateController(
+        updated,
+        generate_error=RuntimeError("render") if stage == "generate" else None,
+    )
+    store = _UpdateStore(
+        save_error=RuntimeError("disk") if stage == "save" else None,
+    )
+    committed = []
+
+    result = asyncio.run(
+        _update_pdf_workflow_with(controller, store, commit=committed.append)
+    )
+
+    assert result.updated is updated
+    assert result.pdf_saved is False
+    assert updated.clave in result.message
+    assert controller.update_calls == [(current, "DICTAMEN ACTUALIZADO")]
+    assert committed == [updated]
+    assert len(controller.generate_calls) == 1
+    assert len(store.save_calls) == (0 if stage == "generate" else 1)
+
+
+def test_update_pdf_workflow_records_the_exact_stage_order():
+    current = _record()
+    updated = _record(text="DICTAMEN ACTUALIZADO")
+    events = []
+
+    class Selector(_UpdateSelector):
+        async def select(self, record):
+            events.append("selector")
+            return await super().select(record)
+
+    class Controller(_UpdateController):
+        async def update_dictaminacion(self, current, value):
+            events.append("put")
+            return await super().update_dictaminacion(current, value)
+
+        def prepare_updated_pdf_request(
+            self, dictamen, *, director, fecha_sesion
+        ):
+            events.append("prepare")
+            return super().prepare_updated_pdf_request(
+                dictamen,
+                director=director,
+                fecha_sesion=fecha_sesion,
+            )
+
+        async def generate_pdf(self, request):
+            events.append("generate")
+            return await super().generate_pdf(request)
+
+    class Store(_UpdateStore):
+        def validate_destination(self, destination):
+            events.append("validate")
+            return super().validate_destination(destination)
+
+        async def save(self, destination, content):
+            events.append("save")
+            return await super().save(destination, content)
+
+    controller = Controller(updated)
+    store = Store()
+
+    asyncio.run(
+        _update_pdf_workflow_with(
+            controller,
+            store,
+            current=current,
+            selector=Selector("C:/tmp/actualizado.pdf"),
+            commit=lambda value: events.append(("commit", value)),
+        )
+    )
+
+    assert events == [
+        "selector",
+        "validate",
+        "put",
+        ("commit", updated),
+        "prepare",
+        "generate",
+        "save",
+    ]
+
+
+def test_update_pdf_failure_message_uses_safe_copy_and_selected_destination():
+    message = buscar.post_update_pdf_failure_message(
+        "CSE-0001-26",
+        Path("C:/tmp/actualizado.pdf"),
+    )
+
+    assert "Dictamen actualizado correctamente. Clave: CSE-0001-26." in message
+    assert (
+        "El PDF no se pudo guardar; verifica el dictamen antes de intentar "
+        f"cualquier otra {_ACCION}."
+    ) in message
+    assert "Ruta seleccionada: C:\\tmp\\actualizado.pdf." in message
