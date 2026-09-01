@@ -737,6 +737,29 @@ def test_update_pdf_workflow_output_failure_keeps_put_result_without_replay(stag
     assert len(store.save_calls) == (0 if stage == "generate" else 1)
 
 
+def test_update_pdf_workflow_treats_commit_failure_after_put_as_partial_success():
+    """A local reconciliation failure must not disguise a completed PUT."""
+    current = _record()
+    updated = _record(text="DICTAMEN ACTUALIZADO")
+    controller = _UpdateController(updated)
+    store = _UpdateStore()
+
+    def failing_commit(_updated):
+        raise NotFoundError()
+
+    result = asyncio.run(
+        _update_pdf_workflow_with(controller, store, commit=failing_commit)
+    )
+
+    assert result.updated is updated
+    assert result.pdf_saved is False
+    assert updated.clave in result.message
+    assert "ya no est" not in result.message
+    assert controller.update_calls == [(current, "DICTAMEN ACTUALIZADO")]
+    assert controller.generate_calls == []
+    assert store.save_calls == []
+
+
 def test_update_pdf_workflow_records_the_exact_stage_order():
     current = _record()
     updated = _record(text="DICTAMEN ACTUALIZADO")

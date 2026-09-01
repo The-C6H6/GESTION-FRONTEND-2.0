@@ -187,9 +187,9 @@ async def _update_pdf_workflow(
         current,
         normalized,
     )
-    commit(updated)
 
     try:
+        commit(updated)
         request = services.dictamen_controller.prepare_updated_pdf_request(
             updated,
             director=director,
