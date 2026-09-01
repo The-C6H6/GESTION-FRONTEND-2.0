@@ -144,9 +144,6 @@ class DictamenController:
             len(records),
         )
 
-    async def search(self, filters: DictamenFilter) -> Sequence[Dictamen]:
-        return await self._repository.search(filters)
-
     async def search_page(
         self,
         filters: DictamenFilter,
@@ -163,9 +160,6 @@ class DictamenController:
             skip=(page - 1) * limit,
             limit=limit,
         )
-
-    async def get(self, clave: str) -> Dictamen:
-        return await self._repository.get(clave)
 
     async def update(self, clave: str, dictaminacion: str) -> Dictamen:
         self._require_admin()

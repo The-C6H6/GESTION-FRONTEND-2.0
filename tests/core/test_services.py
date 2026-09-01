@@ -13,6 +13,7 @@ from esiqie_dictamenes.features.dictamenes.models import (
     GeneratedDocument,
     PdfRequest,
 )
+from esiqie_dictamenes.features.dictamenes.repository import DictamenRepository
 from esiqie_dictamenes.infrastructure.pdf.document_store import LocalPdfDocumentStore
 from esiqie_dictamenes.infrastructure.pdf.generator import RealPdfGenerator
 from tests.helpers import (
@@ -110,6 +111,18 @@ def test_production_services_wire_real_pdf_generation_and_local_storage():
     assert document.filename == "2021320863_dictamen_2026-08-30.pdf"
     assert document.content.startswith(b"%PDF-")
     assert document.is_simulation is False
+
+
+def test_production_controller_does_not_expose_unsupported_unpaginated_lookup_contract():
+    services = build_services(
+        settings=api_settings(),
+        transport=httpx.MockTransport(lambda request: httpx.Response(500)),
+    )
+
+    assert not hasattr(services.dictamen_controller, "search")
+    assert not hasattr(services.dictamen_controller, "get")
+    assert "search" not in DictamenRepository.__dict__
+    assert "get" not in DictamenRepository.__dict__
 
 
 def test_production_services_establish_the_api_identity_and_shared_session():

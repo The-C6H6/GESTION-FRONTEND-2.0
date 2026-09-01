@@ -282,14 +282,6 @@ def test_delete_uses_unique_keys_from_selected_domain_entities():
     assert delete_repository.calls == [(first.clave, second.clave)]
 
 
-def test_search_returns_all_rulings_for_the_requested_boleta():
-    controller = build_controller()
-
-    result = asyncio.run(controller.search(DictamenFilter(boleta="2024320678")))
-
-    assert len(result) == 3
-
-
 def test_paginated_search_converts_page_number_to_skip_and_preserves_filter():
     expected = DictamenPage(
         total=347,
