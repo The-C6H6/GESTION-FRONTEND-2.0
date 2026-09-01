@@ -184,6 +184,18 @@ async def _create_pdf_workflow(
     )
 
 
+def _consume_create_pdf_result(
+    output: CreatePdfResult,
+    set_message: Callable[[str], None],
+    set_is_error: Callable[[bool], None],
+) -> None:
+    """Apply a staged CREATE result without turning cancellation into an error."""
+    if output.cancelled:
+        return
+    set_message(output.message)
+    set_is_error(not output.pdf_saved)
+
+
 def _build_failed_subjects_section(
     materias: tuple,
     total_reprobadas: int,
@@ -351,8 +363,7 @@ def DictamenCreateView() -> ft.Control:
                     set_total_reprobadas(0),
                 ),
             )
-            set_message(output.message)
-            set_is_error(not output.pdf_saved)
+            _consume_create_pdf_result(output, set_message, set_is_error)
 
         try:
             await _run_guarded_request(

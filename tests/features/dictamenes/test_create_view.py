@@ -564,6 +564,48 @@ def test_create_pdf_workflow_orders_selector_create_generate_and_save():
     assert controller.create_calls[0]["materias"] == kwargs["materias"]
 
 
+def test_create_pdf_workflow_records_the_exact_stage_order():
+    events = []
+
+    class Selector(_WorkflowSelector):
+        async def select(self, dictamen):
+            events.append("selector")
+            return await super().select(dictamen)
+
+    class Controller(_WorkflowController):
+        async def create(self, **kwargs):
+            events.append("create")
+            return await super().create(**kwargs)
+
+        async def generate_pdf(self, request):
+            events.append("generate")
+            return await super().generate_pdf(request)
+
+    class Store(_WorkflowStore):
+        def validate_destination(self, path):
+            events.append("validate")
+            return super().validate_destination(path)
+
+        async def save(self, path, content):
+            events.append("save")
+            return await super().save(path, content)
+
+    controller = Controller()
+    store = Store()
+    services = _workflow_services(controller, store)
+
+    asyncio.run(
+        _create_workflow_with(
+            services,
+            controller,
+            store,
+            selector=Selector("C:/tmp/resultado.pdf"),
+        )
+    )
+
+    assert events == ["selector", "validate", "create", "generate", "save"]
+
+
 def test_create_pdf_workflow_cancellation_has_no_mutation_or_output():
     controller = _WorkflowController()
     store = _WorkflowStore()
@@ -623,6 +665,27 @@ def test_create_pdf_workflow_blocks_web_mobile_before_selector_and_mutation(plat
     assert controller.create_calls == []
 
 
+def test_create_pdf_workflow_blocks_web_before_selector_and_mutation():
+    controller = _WorkflowController()
+    store = _WorkflowStore()
+    selector = _WorkflowSelector("C:/tmp/resultado.pdf")
+    services = _workflow_services(controller, store)
+
+    with pytest.raises(ValueError):
+        asyncio.run(
+            _create_workflow_with(
+                services,
+                controller,
+                store,
+                page=SimpleNamespace(web=True, platform=ft.PagePlatform.WINDOWS),
+                selector=selector,
+            )
+        )
+
+    assert selector.calls == []
+    assert controller.create_calls == []
+
+
 def test_create_pdf_workflow_backend_failure_does_not_generate_or_save():
     controller = _WorkflowController(create_error=RuntimeError("backend"))
     store = _WorkflowStore()
@@ -663,11 +726,37 @@ def test_create_pdf_workflow_save_failure_retains_created_key_without_retry():
     controller = _WorkflowController()
     store = _WorkflowStore(save_error=RuntimeError("disk"))
     services = _workflow_services(controller, store)
+    invalidated = []
 
-    result = asyncio.run(_create_workflow_with(services, controller, store))
+    result = asyncio.run(
+        _create_workflow_with(
+            services,
+            controller,
+            store,
+            on_post_mutation_failure=invalidated.append,
+        )
+    )
 
     assert result.dictamen.clave == "CSE-0001-26"
     assert result.pdf_saved is False
     assert "CSE-0001-26" in result.message
     assert len(controller.create_calls) == 1
     assert len(controller.generate_calls) == 1
+    assert len(store.save_calls) == 1
+    assert invalidated == [result.dictamen]
+
+
+def test_create_result_consumer_keeps_cancellation_neutral():
+    from esiqie_dictamenes.features.dictamenes.views.pdf_output import CreatePdfResult
+
+    messages = []
+    errors = []
+
+    crear._consume_create_pdf_result(
+        CreatePdfResult(dictamen=None, cancelled=True),
+        messages.append,
+        errors.append,
+    )
+
+    assert messages == []
+    assert errors == []
