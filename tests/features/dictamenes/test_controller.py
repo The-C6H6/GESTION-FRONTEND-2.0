@@ -31,7 +31,18 @@ def build_controller():
         DemoAlumnoRepository(),
         RecordingPdfGenerator(),
         require_admin=store.require_admin,
+        search_repository=DemoDictamenRepository(),
     )
+
+
+def test_controller_requires_an_explicit_search_repository():
+    with pytest.raises(TypeError, match="search_repository"):
+        DictamenController(
+            DemoDictamenRepository(),
+            DemoAlumnoRepository(),
+            RecordingPdfGenerator(),
+            require_admin=authenticated_store().require_admin,
+        )
 
 
 def test_reprobados_flow_includes_every_eligible_subject_automatically():
@@ -75,6 +86,7 @@ def test_enrolled_source_uses_only_the_enrolled_student_repository():
         RecordingPdfGenerator(),
         require_admin=authenticated_store().require_admin,
         reprobado_repository=RejectingReprobadoRepository(),
+        search_repository=DemoDictamenRepository(),
     )
 
     result = asyncio.run(
@@ -116,6 +128,7 @@ def test_failed_source_uses_only_reprobados_and_builds_its_own_student():
         RecordingPdfGenerator(),
         require_admin=authenticated_store().require_admin,
         reprobado_repository=reprobados,
+        search_repository=DemoDictamenRepository(),
     )
 
     result = asyncio.run(
@@ -146,6 +159,7 @@ def test_failed_source_reports_an_empty_page_without_falling_back_to_inscritos()
         RecordingPdfGenerator(),
         require_admin=authenticated_store().require_admin,
         reprobado_repository=EmptyReprobadoRepository(),
+        search_repository=DemoDictamenRepository(),
     )
 
     with pytest.raises(
@@ -167,6 +181,7 @@ def test_create_keeps_pdf_context_separate_without_generating_a_document():
         DemoAlumnoRepository(),
         RejectingPdfGenerator(),
         require_admin=authenticated_store().require_admin,
+        search_repository=DemoDictamenRepository(),
     )
     alumno = asyncio.run(DemoAlumnoRepository().get_inscrito("2024320678"))
 
@@ -247,6 +262,7 @@ def test_delete_rejects_an_empty_selection():
         RecordingPdfGenerator(),
         require_admin=authenticated_store().require_admin,
         delete_repository=RejectingDeleteRepository(),
+        search_repository=DemoDictamenRepository(),
     )
 
     with pytest.raises(ValidationError, match="Selecciona"):
@@ -272,6 +288,7 @@ def test_delete_uses_unique_keys_from_selected_domain_entities():
         RecordingPdfGenerator(),
         require_admin=authenticated_store().require_admin,
         delete_repository=delete_repository,
+        search_repository=DemoDictamenRepository(),
     )
 
     total = asyncio.run(
@@ -375,6 +392,7 @@ def test_real_update_changes_only_dictaminacion_after_repository_success():
         RecordingPdfGenerator(),
         require_admin=authenticated_store().require_admin,
         update_repository=update_repository,
+        search_repository=DemoDictamenRepository(),
     )
 
     result = asyncio.run(
@@ -413,6 +431,7 @@ def test_real_update_rejects_empty_or_non_string_values_without_a_put(value):
         RecordingPdfGenerator(),
         require_admin=authenticated_store().require_admin,
         update_repository=RejectingUpdateRepository(),
+        search_repository=DemoDictamenRepository(),
     )
     current = asyncio.run(DemoDictamenRepository().get("D-00132"))
 
@@ -431,6 +450,7 @@ def test_real_update_skips_put_when_dictaminacion_is_unchanged():
         RecordingPdfGenerator(),
         require_admin=authenticated_store().require_admin,
         update_repository=RejectingUpdateRepository(),
+        search_repository=DemoDictamenRepository(),
     )
     current = asyncio.run(DemoDictamenRepository().get("D-00132"))
 
@@ -477,6 +497,7 @@ def test_real_update_rejects_backend_changes_to_immutable_metadata(changed_field
         RecordingPdfGenerator(),
         require_admin=authenticated_store().require_admin,
         update_repository=InvalidUpdateRepository(),
+        search_repository=DemoDictamenRepository(),
     )
 
     with pytest.raises(UnexpectedResponseError):
@@ -495,6 +516,7 @@ def test_generate_pdf_calls_the_generator_once_and_returns_the_exact_document():
         DemoAlumnoRepository(),
         pdf_generator,
         require_admin=authenticated_store().require_admin,
+        search_repository=DemoDictamenRepository(),
     )
     request = PdfRequest(
         dictamen=Dictamen(
@@ -569,6 +591,7 @@ def test_prepare_updated_pdf_request_requires_admin_before_validation():
         DemoAlumnoRepository(),
         RecordingPdfGenerator(),
         require_admin=normal_store.require_admin,
+        search_repository=DemoDictamenRepository(),
     )
     updated = asyncio.run(DemoDictamenRepository().get("D-00132"))
 
@@ -637,6 +660,7 @@ def test_normal_user_mutations_are_rejected_before_any_collaborator(operation):
         pdf_generator,
         require_admin=normal_store.require_admin,
         create_repository=repository,
+        search_repository=DemoDictamenRepository(),
         update_repository=repository,
         delete_repository=repository,
     )
@@ -677,6 +701,7 @@ def test_normal_user_can_query_student_candidates():
         DemoAlumnoRepository(),
         RecordingPdfGenerator(),
         require_admin=normal_store.require_admin,
+        search_repository=DemoDictamenRepository(),
     )
 
     candidate = asyncio.run(
@@ -693,6 +718,7 @@ def test_normal_user_can_query_ruling_pages():
         DemoAlumnoRepository(),
         RecordingPdfGenerator(),
         require_admin=normal_store.require_admin,
+        search_repository=DemoDictamenRepository(),
     )
 
     page = asyncio.run(

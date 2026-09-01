@@ -59,7 +59,7 @@ class DictamenController:
         require_admin: Callable[[], None],
         reprobado_repository: ReprobadoRepository | None = None,
         create_repository: DictamenCreateRepository | None = None,
-        search_repository: DictamenSearchRepository | None = None,
+        search_repository: DictamenSearchRepository,
         update_repository: DictamenUpdateRepository | None = None,
         delete_repository: DictamenDeleteRepository | None = None,
     ) -> None:
@@ -67,7 +67,7 @@ class DictamenController:
         self._alumno_repository = alumno_repository
         self._reprobado_repository = reprobado_repository or alumno_repository
         self._create_repository = create_repository or repository
-        self._search_repository = search_repository or repository
+        self._search_repository = search_repository
         self._update_repository = update_repository or repository
         self._delete_repository = delete_repository or repository
         self._pdf_generator = pdf_generator

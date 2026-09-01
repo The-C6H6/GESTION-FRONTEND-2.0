@@ -108,6 +108,7 @@ def build_test_services(
             alumno_repository,
             pdf_generator,
             require_admin=auth_session.require_admin,
+            search_repository=dictamen_repository,
         ),
         alumno_controller=AlumnoController(alumno_repository),
         auth_repository=login_repository,
