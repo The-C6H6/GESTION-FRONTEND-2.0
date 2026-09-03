@@ -30,6 +30,10 @@ def test_session_date_formatter_uses_spanish_month_without_year(month, name):
     assert "2026" not in result
 
 
+def test_dictamen_date_formatter_uses_domain_date_in_spanish():
+    assert pdf.format_dictamen_date(date(2026, 8, 24)) == "24 de Agosto de 2026"
+
+
 def test_pdf_filename_uses_the_dictamen_boleta_and_issue_date():
     dictamen = Dictamen(
         clave="D-00132",

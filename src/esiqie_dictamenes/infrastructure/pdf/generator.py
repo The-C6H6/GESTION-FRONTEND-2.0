@@ -5,113 +5,77 @@ from fpdf import FPDF
 from fpdf.enums import MethodReturnValue, XPos, YPos
 
 from esiqie_dictamenes.core.errors import PdfGenerationError
-from esiqie_dictamenes.features.dictamenes.models import (
-    GeneratedDocument,
-    PdfRequest,
-)
+from esiqie_dictamenes.features.dictamenes.models import GeneratedDocument, PdfRequest
 from esiqie_dictamenes.features.dictamenes.pdf import (
     build_pdf_filename,
     build_session_paragraph,
+    format_dictamen_date,
 )
 
 
 _REQUIRED_ASSETS = ("ipn_logo.jpg", "logo_esiqie.png", "imagen_fondo.png")
-_PAGE_WIDTH = 210
-_PAGE_HEIGHT = 297
-_BODY_TOP = 48
-_FOOTER_TOP = 276
-_TABLE_LEFT = 19
-_TABLE_WIDTH = 172
+_BODY_LEFT = 10
+_BODY_WIDTH = 190
+_BODY_TOP = 83
+_TABLE_TOP = 149
+_SIGNATURE_TOP = 246
+_CONTENT_BOTTOM = 265
+_FOOTER_TOP = 269
 _TABLE_COLUMNS = (
-    ("Materia Desfasada", 88, "L"),
-    ("Periodo Reprobada", 32, "C"),
-    ("Intentos Ordinario", 30, "C"),
-    ("Inscrita", 22, "C"),
+    ("Materia Desfasada", 112),
+    ("Periodo Reprobada", 33),
+    ("Intentos Ordinario", 30),
+    ("Inscrita", 15),
 )
-_TABLE_HEADER_FONT_SIZE = 7.5
+_TABLE_CELL_PADDING_X = 0.2
+_TABLE_CELL_PADDING_Y = 0.8
+_TABLE_HEADER_MIN_HEIGHT = 10
+_TABLE_ROW_MIN_HEIGHT = 8
 _TABLE_HEADER_LINE_HEIGHT = 4.2
-_TABLE_ROW_FONT_SIZE = 8
 _TABLE_ROW_LINE_HEIGHT = 4.2
-_TABLE_CELL_HORIZONTAL_PADDING = 1.2
-_TABLE_CELL_VERTICAL_PADDING = 0.8
-_SIGNATURE_TOP_SPACING = 3
 
 
 class _InstitutionalPdf(FPDF):
     def __init__(self, assets: dict[str, Path]) -> None:
         super().__init__(orientation="P", unit="mm", format="A4")
         self._assets = assets
-        self.set_margins(19, _BODY_TOP, 19)
-        self.set_auto_page_break(auto=True, margin=_PAGE_HEIGHT - _FOOTER_TOP + 3)
+        self.set_margins(_BODY_LEFT, _BODY_TOP, _BODY_LEFT)
+        self.set_auto_page_break(auto=False)
 
     def header(self) -> None:
-        self.image(
-            str(self._assets["imagen_fondo.png"]),
-            x=0,
-            y=0,
-            w=_PAGE_WIDTH,
-            h=_PAGE_HEIGHT,
-        )
-        self.image(str(self._assets["ipn_logo.jpg"]), x=19, y=10, w=18)
-        self.image(str(self._assets["logo_esiqie.png"]), x=170, y=10, w=20)
+        self.image(str(self._assets["imagen_fondo.png"]), x=30, y=50, w=150)
+        self.image(str(self._assets["ipn_logo.jpg"]), x=10, y=10, w=30)
+        self.image(str(self._assets["logo_esiqie.png"]), x=180, y=10, w=20)
 
-        self.set_xy(41, 10)
-        self.set_font("Helvetica", "B", 10)
-        self.multi_cell(
-            125,
-            4.5,
-            "INSTITUTO POLITÉCNICO NACIONAL",
-            align="C",
-            new_x=XPos.LEFT,
-            new_y=YPos.NEXT,
-        )
-        self.set_x(41)
-        self.set_font("Helvetica", "B", 8)
-        self.multi_cell(
-            125,
-            4,
-            (
-                "ESCUELA SUPERIOR DE INGENIERÍA QUÍMICA E INDUSTRIAS "
-                "EXTRACTIVAS"
-            ),
-            align="C",
-            new_x=XPos.LEFT,
-            new_y=YPos.NEXT,
-        )
-        self.set_x(41)
-        self.set_font("Helvetica", "", 7.5)
-        self.multi_cell(
-            125,
-            3.8,
-            "COMISIÓN DE SITUACIÓN ESCOLAR",
-            align="C",
-            new_x=XPos.LEFT,
-            new_y=YPos.NEXT,
-        )
-        self.set_y(_BODY_TOP)
+        self.set_text_color(0, 0, 0)
+        self._out("0 g")
+        self.set_xy(40, 10)
+        self.set_font("Helvetica", "B", 15)
+        self.cell(130, 6, "Instituto Politecnico Nacional", align="C")
+        self.set_xy(40, 18)
+        self.set_font("Helvetica", "", 10)
+        for line in (
+            "Escuela Superior de Ingenieria Quimica e Industrias Extractivas",
+            "Consejo Tecnico Consultivo Escolar",
+            "Comision de Situacion Escolar",
+        ):
+            self.cell(130, 5, line, align="C", new_x=XPos.LEFT, new_y=YPos.NEXT)
+            self.set_x(40)
+        self.set_xy(40, 34)
+        self.set_font("Helvetica", "B", 14)
+        self.cell(130, 7, "Dictamen", align="C")
+        self.set_xy(_BODY_LEFT, _BODY_TOP)
 
     def footer(self) -> None:
-        self.set_y(-21)
-        self.set_draw_color(92, 16, 55)
-        self.set_line_width(0.35)
-        self.line(self.l_margin, self.get_y(), self.w - self.r_margin, self.get_y())
-        self.ln(2)
-        self.set_font("Helvetica", "B", 6.5)
-        self.set_text_color(60, 60, 60)
-        self.cell(
-            0,
+        self.set_text_color(0, 0, 0)
+        self.set_xy(_BODY_LEFT, _FOOTER_TOP)
+        self.set_font("Helvetica", "", 7)
+        self.multi_cell(
+            _BODY_WIDTH,
             3.5,
-            "ESCUELA SUPERIOR DE INGENIERÍA QUÍMICA E INDUSTRIAS EXTRACTIVAS",
-            align="C",
-            new_x=XPos.LMARGIN,
-            new_y=YPos.NEXT,
-        )
-        self.set_font("Helvetica", "", 6)
-        self.cell(
-            0,
-            3.5,
-            "INSTITUTO POLITÉCNICO NACIONAL",
-            align="C",
+            "c.c.p. Archivo del Departamento de Gestion Escolar\n"
+            "NOTA: Este documento carece de validez oficial si presenta "
+            "tachaduras, raspaduras o enmendaduras.",
         )
 
 
@@ -128,26 +92,29 @@ class RealPdfGenerator:
             raise PdfGenerationError() from None
 
     def _generate(self, request: PdfRequest) -> GeneratedDocument:
-        assets = self._resolve_assets()
-        pdf = _InstitutionalPdf(assets)
+        pdf = _InstitutionalPdf(self._resolve_assets())
         pdf.set_title(f"Dictamen {request.dictamen.clave}")
-        pdf.set_author("Instituto Politécnico Nacional")
+        pdf.set_author("ESIQIE IPN")
         pdf.add_page()
-
-        self._draw_title(pdf)
+        self._draw_metadata(pdf, request)
         self._draw_identity(pdf, request)
-        self._draw_wrapped_block(
+        self._draw_text_block(
             pdf,
             build_session_paragraph(request.fecha_sesion),
-            font_size=8.5,
-            line_height=4.5,
+            font_size=8,
+            line_height=4,
             align="J",
         )
-        pdf.ln(2)
+        pdf.ln(5)
         self._draw_dictaminacion(pdf, request.dictamen.dictaminacion)
         if request.materias:
+            pdf.set_y(max(pdf.get_y(), _TABLE_TOP))
             self._draw_subject_table(pdf, request)
-        self._draw_signature(pdf, request.director)
+        self._draw_signature(
+            pdf,
+            request.director,
+            minimum_y=_SIGNATURE_TOP if request.materias else pdf.get_y(),
+        )
 
         content = bytes(pdf.output())
         if not content.startswith(b"%PDF-"):
@@ -159,95 +126,98 @@ class RealPdfGenerator:
         )
 
     def _resolve_assets(self) -> dict[str, Path]:
-        assets = {
-            name: self._assets_dir / name for name in _REQUIRED_ASSETS
-        }
+        assets = {name: self._assets_dir / name for name in _REQUIRED_ASSETS}
         if not all(path.is_file() for path in assets.values()):
             raise PdfGenerationError()
         return assets
 
     @staticmethod
-    def _draw_title(pdf: _InstitutionalPdf) -> None:
-        pdf.set_text_color(0, 0, 0)
-        pdf.set_font("Helvetica", "B", 13)
-        pdf.cell(
-            0,
-            6,
-            "DICTAMEN",
-            align="C",
-            new_x=XPos.LMARGIN,
-            new_y=YPos.NEXT,
+    def _draw_metadata(pdf: _InstitutionalPdf, request: PdfRequest) -> None:
+        metadata = (
+            ("CARACTER:", "CONFIDENCIAL"),
+            ("PARTES RESERVADAS:", "TODO EL DOCUMENTO"),
+            (
+                "FUNDAMENTO LEGAL:",
+                "ARTICULO 3, FRACCION II; ARTICULO 18, FRACCION II Y 21 "
+                "DE LA LFAIPG, LINEAMIENTO 32o, FRACCION XVII, "
+                "LINEAMIENTO 35o.",
+            ),
         )
-        pdf.set_font("Helvetica", "B", 7)
-        pdf.cell(
-            0,
-            4,
-            "DOCUMENTO CONFIDENCIAL DE USO INSTITUCIONAL",
-            align="C",
-            new_x=XPos.LMARGIN,
-            new_y=YPos.NEXT,
-        )
-        pdf.ln(2)
+        x = 114
+        y = 51
+        label_width = 28
+        value_width = 58
+        for label, value in metadata:
+            height = max(
+                3,
+                RealPdfGenerator._measure_text(
+                    pdf, value, width=value_width, font_size=4.5, line_height=2.4
+                ),
+            )
+            pdf.set_xy(x, y)
+            pdf.set_font("Helvetica", "B", 4.5)
+            pdf.cell(label_width, height, label, align="R")
+            pdf.set_xy(x + label_width, y)
+            pdf.set_font("Helvetica", "", 4.5)
+            pdf.multi_cell(value_width, 2.4, value)
+            y += height
+        pdf.set_xy(133, max(y + 2, 67))
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.cell(30, 5, "DICTAMEN NO.:", align="R")
+        pdf.set_font("Helvetica", "BU", 10)
+        pdf.cell(37, 5, request.dictamen.clave)
 
     @classmethod
     def _draw_identity(cls, pdf: _InstitutionalPdf, request: PdfRequest) -> None:
-        dictamen = request.dictamen
-        pdf.set_font("Helvetica", "B", 8.5)
-        pdf.cell(86, 5, f"CLAVE: {dictamen.clave}")
-        pdf.cell(
-            86,
-            5,
-            f"FECHA: {dictamen.fecha:%d/%m/%Y}",
-            align="R",
-            new_x=XPos.LMARGIN,
-            new_y=YPos.NEXT,
+        pdf.set_xy(_BODY_LEFT, _BODY_TOP)
+        pdf.set_font("Helvetica", "", 8)
+        pdf.cell(_BODY_WIDTH, 4, format_dictamen_date(request.dictamen.fecha))
+        pdf.ln(10)
+        cls._draw_labeled_value(pdf, "NOMBRE DEL ALUMNO (A):", request.dictamen.alumno)
+        cls._draw_labeled_value(pdf, "NUMERO DE BOLETA:", request.dictamen.boleta)
+        pdf.ln(3)
+
+    @classmethod
+    def _draw_labeled_value(cls, pdf: _InstitutionalPdf, label: str, value: str) -> None:
+        label_width = 43
+        value_width = _BODY_WIDTH - label_width
+        value_height = cls._measure_text(
+            pdf, value, width=value_width, font_style="B", font_size=10, line_height=4.5
         )
-        pdf.ln(1)
-        cls._draw_wrapped_block(
-            pdf,
-            f"ALUMNO: {dictamen.alumno}",
-            font_size=9,
-            line_height=4.8,
-        )
-        cls._draw_wrapped_block(
-            pdf,
-            f"BOLETA: {dictamen.boleta}",
-            font_size=9,
-            line_height=4.8,
-        )
-        pdf.ln(2)
+        height = max(5, value_height)
+        cls._ensure_space(pdf, height + 2)
+        x = _BODY_LEFT
+        y = pdf.get_y()
+        pdf.set_xy(x, y)
+        pdf.set_font("Helvetica", "", 8)
+        pdf.cell(label_width, height, label)
+        pdf.set_xy(x + label_width, y)
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.multi_cell(value_width, 4.5, value)
+        pdf.set_xy(_BODY_LEFT, y + height + 2)
 
     @classmethod
     def _draw_dictaminacion(cls, pdf: _InstitutionalPdf, text: str) -> None:
-        pdf.set_font("Helvetica", "B", 9)
-        pdf.cell(
-            0,
-            5,
-            "DICTAMINACIÓN FINAL",
-            align="C",
-            new_x=XPos.LMARGIN,
-            new_y=YPos.NEXT,
-        )
-        cls._draw_wrapped_block(
-            pdf,
-            text,
-            font_size=9,
-            line_height=5,
-            border=1,
-            align="J",
-        )
+        height = cls._measure_text(pdf, text, width=_BODY_WIDTH, font_size=7, line_height=4)
+        cls._ensure_space(pdf, height + 2)
+        pdf.set_font("Helvetica", "", 7)
+        pdf.multi_cell(_BODY_WIDTH, 4, text, border=1)
         pdf.ln(3)
 
     @classmethod
     def _draw_subject_table(cls, pdf: _InstitutionalPdf, request: PdfRequest) -> None:
-        signature_height = cls._measure_signature_height(pdf, request.director)
-        header_height = cls._measure_table_row_height(
-            pdf,
-            tuple(column[0] for column in _TABLE_COLUMNS),
-            font_style="B",
-            font_size=_TABLE_HEADER_FONT_SIZE,
-            line_height=_TABLE_HEADER_LINE_HEIGHT,
+        header_height = max(
+            _TABLE_HEADER_MIN_HEIGHT,
+            cls._measure_table_height(
+                pdf,
+                tuple(column[0] for column in _TABLE_COLUMNS),
+                font_style="B",
+                font_size=9,
+                line_height=_TABLE_HEADER_LINE_HEIGHT,
+            ),
         )
+        signature_height = cls._measure_signature_height(pdf, request.director)
+        header_drawn = False
         for index, materia in enumerate(request.materias):
             cells = (
                 materia.materia,
@@ -255,150 +225,152 @@ class RealPdfGenerator:
                 str(materia.intentos_ordinario),
                 materia.materia_inscrita or "",
             )
-            row_height = cls._measure_table_row_height(pdf, cells)
-            cls._ensure_table_row_fits_page(pdf, row_height, header_height)
-            if cls._requires_new_table_page(
-                pdf,
-                header_height=header_height,
-                row_height=row_height,
-                signature_height=signature_height,
-                has_drawn_header=index > 0,
-            ):
+            row_height = max(_TABLE_ROW_MIN_HEIGHT, cls._measure_table_height(pdf, cells))
+            if row_height + header_height > _CONTENT_BOTTOM - _BODY_TOP:
+                raise PdfGenerationError()
+            required = row_height + signature_height + (0 if header_drawn else header_height)
+            if pdf.get_y() + required > _CONTENT_BOTTOM:
                 pdf.add_page()
-            if index == 0 or pdf.get_x() != _TABLE_LEFT or pdf.get_y() == pdf.t_margin:
-                cls._draw_table_header(pdf)
-            cls._draw_table_row(pdf, cells)
-        pdf.ln(2)
+                header_drawn = False
+            if not header_drawn:
+                cls._draw_table_header(pdf, header_height)
+                header_drawn = True
+            if pdf.get_y() + row_height + signature_height > _CONTENT_BOTTOM:
+                pdf.add_page()
+                cls._draw_table_header(pdf, header_height)
+            cls._draw_table_row(pdf, cells, row_height=row_height, index=index)
+        pdf.ln(3)
 
     @classmethod
-    def _draw_signature(cls, pdf: _InstitutionalPdf, director: str) -> None:
-        if cls._requires_new_page(pdf, cls._measure_signature_height(pdf, director)):
-            pdf.add_page()
-        pdf.set_font("Helvetica", "B", 8)
-        pdf.cell(
-            0,
-            4,
-            "ATENTAMENTE",
-            align="C",
-            new_x=XPos.LMARGIN,
-            new_y=YPos.NEXT,
-        )
-        pdf.set_font("Helvetica", "", 7)
-        pdf.cell(
-            0,
-            4,
-            '"LA TÉCNICA AL SERVICIO DE LA PATRIA"',
-            align="C",
-            new_x=XPos.LMARGIN,
-            new_y=YPos.NEXT,
-        )
-        pdf.ln(9)
-        cls._draw_wrapped_block(
+    def _draw_table_header(cls, pdf: _InstitutionalPdf, height: float) -> None:
+        cls._draw_table_cells(
             pdf,
-            director,
-            font_size=9,
-            line_height=4.5,
-            align="C",
-        )
-        pdf.set_font("Helvetica", "B", 7.5)
-        pdf.cell(0, 4, "DIRECTOR(A)", align="C")
-
-    @staticmethod
-    def _draw_table_header(pdf: _InstitutionalPdf) -> None:
-        headers = tuple(column[0] for column in _TABLE_COLUMNS)
-        RealPdfGenerator._draw_table_row(
-            pdf,
-            headers,
+            tuple(column[0] for column in _TABLE_COLUMNS),
+            row_height=height,
             font_style="B",
-            font_size=_TABLE_HEADER_FONT_SIZE,
+            font_size=9,
             line_height=_TABLE_HEADER_LINE_HEIGHT,
+            fill=(41, 128, 185),
+            text_color=(255, 255, 255),
         )
 
-    @staticmethod
+    @classmethod
     def _draw_table_row(
+        cls,
         pdf: _InstitutionalPdf,
         cells: tuple[str, str, str, str],
         *,
-        font_style: str = "",
-        font_size: float = _TABLE_ROW_FONT_SIZE,
-        line_height: float = _TABLE_ROW_LINE_HEIGHT,
+        row_height: float,
+        index: int,
     ) -> None:
-        row_height = RealPdfGenerator._measure_table_row_height(
+        cls._draw_table_cells(
             pdf,
             cells,
-            font_style=font_style,
-            font_size=font_size,
-            line_height=line_height,
+            row_height=row_height,
+            font_size=8,
+            line_height=_TABLE_ROW_LINE_HEIGHT,
+            fill=(240, 240, 240) if index % 2 else (255, 255, 255),
+            text_color=(0, 0, 0),
         )
-        x = _TABLE_LEFT
+
+    @staticmethod
+    def _draw_table_cells(
+        pdf: _InstitutionalPdf,
+        cells: tuple[str, str, str, str],
+        *,
+        row_height: float,
+        font_size: float,
+        line_height: float,
+        fill: tuple[int, int, int],
+        text_color: tuple[int, int, int],
+        font_style: str = "",
+    ) -> None:
+        x = _BODY_LEFT
         y = pdf.get_y()
         pdf.set_draw_color(0, 0, 0)
         pdf.set_line_width(0.2)
-        for (header, width, align), value in zip(_TABLE_COLUMNS, cells, strict=True):
-            pdf.rect(x, y, width, row_height)
-            pdf.set_xy(
-                x + _TABLE_CELL_HORIZONTAL_PADDING,
-                y + _TABLE_CELL_VERTICAL_PADDING,
-            )
+        pdf.set_fill_color(*fill)
+        pdf.set_text_color(*text_color)
+        for (_, width), value in zip(_TABLE_COLUMNS, cells, strict=True):
+            pdf.rect(x, y, width, row_height, style="DF")
+            pdf.set_xy(x + _TABLE_CELL_PADDING_X, y + _TABLE_CELL_PADDING_Y)
             pdf.set_font("Helvetica", font_style, font_size)
             pdf.multi_cell(
-                width - (_TABLE_CELL_HORIZONTAL_PADDING * 2),
+                width - (_TABLE_CELL_PADDING_X * 2),
                 line_height,
                 value,
-                align=align,
-                border=0,
+                align="C",
                 new_x=XPos.LEFT,
                 new_y=YPos.TOP,
             )
             x += width
-            pdf.set_xy(x, y)
-        pdf.set_xy(_TABLE_LEFT, y + row_height)
+        pdf.set_text_color(0, 0, 0)
+        pdf.set_xy(_BODY_LEFT, y + row_height)
 
-    @staticmethod
-    def _draw_wrapped_block(
+    @classmethod
+    def _draw_signature(
+        cls,
+        pdf: _InstitutionalPdf,
+        director: str,
+        *,
+        minimum_y: float,
+    ) -> None:
+        signature_height = cls._measure_signature_height(pdf, director)
+        target_y = max(pdf.get_y(), minimum_y)
+        if target_y + signature_height > _CONTENT_BOTTOM:
+            pdf.add_page()
+            target_y = pdf.get_y()
+            if _SIGNATURE_TOP + signature_height <= _CONTENT_BOTTOM:
+                target_y = _SIGNATURE_TOP
+        if target_y + signature_height > _CONTENT_BOTTOM:
+            raise PdfGenerationError()
+        pdf.set_y(target_y)
+        cls._draw_text_block(
+            pdf, director, font_style="BU", font_size=10, line_height=4.5, align="C"
+        )
+        pdf.set_x(_BODY_LEFT)
+        pdf.set_font("Helvetica", "", 7)
+        pdf.multi_cell(
+            _BODY_WIDTH,
+            3.5,
+            "Presidente de la Comision de Situacion Escolar\n"
+            "y del Consejo Tecnico Consultivo Escolar",
+            align="C",
+        )
+
+    @classmethod
+    def _draw_text_block(
+        cls,
         pdf: _InstitutionalPdf,
         text: str,
         *,
-        width: float = 0,
         font_size: float,
-        font_style: str = "",
         line_height: float,
-        border: int = 0,
+        font_style: str = "",
         align: str = "L",
     ) -> None:
-        height = RealPdfGenerator._measure_wrapped_height(
+        height = cls._measure_text(
             pdf,
             text,
-            width=width,
-            font_size=font_size,
+            width=_BODY_WIDTH,
             font_style=font_style,
+            font_size=font_size,
             line_height=line_height,
-            border=border,
             align=align,
         )
-        if RealPdfGenerator._requires_new_page(pdf, height):
-            pdf.add_page()
+        cls._ensure_space(pdf, height)
         pdf.set_font("Helvetica", font_style, font_size)
-        pdf.multi_cell(
-            width,
-            line_height,
-            text,
-            border=border,
-            align=align,
-            new_x=XPos.LMARGIN,
-            new_y=YPos.NEXT,
-        )
+        pdf.multi_cell(_BODY_WIDTH, line_height, text, align=align)
 
     @staticmethod
-    def _measure_wrapped_height(
+    def _measure_text(
         pdf: _InstitutionalPdf,
         text: str,
         *,
-        width: float = 0,
+        width: float,
         font_size: float,
-        font_style: str = "",
         line_height: float,
-        border: int = 0,
+        font_style: str = "",
         align: str = "L",
     ) -> float:
         pdf.set_font("Helvetica", font_style, font_size)
@@ -406,82 +378,51 @@ class RealPdfGenerator:
             width,
             line_height,
             text,
-            border=border,
             align=align,
             dry_run=True,
             output=MethodReturnValue.HEIGHT,
         )
 
-    @staticmethod
-    def _measure_table_row_height(
+    @classmethod
+    def _measure_table_height(
+        cls,
         pdf: _InstitutionalPdf,
         cells: tuple[str, str, str, str],
         *,
         font_style: str = "",
-        font_size: float = _TABLE_ROW_FONT_SIZE,
+        font_size: float = 8,
         line_height: float = _TABLE_ROW_LINE_HEIGHT,
     ) -> float:
-        heights = []
-        for (_, width, align), value in zip(_TABLE_COLUMNS, cells, strict=True):
-            content_height = RealPdfGenerator._measure_wrapped_height(
+        return max(
+            cls._measure_text(
                 pdf,
                 value,
-                width=width - (_TABLE_CELL_HORIZONTAL_PADDING * 2),
-                font_size=font_size,
+                width=width - (_TABLE_CELL_PADDING_X * 2),
                 font_style=font_style,
+                font_size=font_size,
                 line_height=line_height,
-                align=align,
+                align="C",
             )
-            heights.append(content_height + (_TABLE_CELL_VERTICAL_PADDING * 2))
-        return max(heights)
+            + (_TABLE_CELL_PADDING_Y * 2)
+            for (_, width), value in zip(_TABLE_COLUMNS, cells, strict=True)
+        )
 
-    @staticmethod
-    def _measure_signature_height(
-        pdf: _InstitutionalPdf, director: str
-    ) -> float:
-        director_height = RealPdfGenerator._measure_wrapped_height(
+    @classmethod
+    def _measure_signature_height(cls, pdf: _InstitutionalPdf, director: str) -> float:
+        director_height = cls._measure_text(
             pdf,
             director,
-            font_size=9,
+            width=_BODY_WIDTH,
+            font_style="BU",
+            font_size=10,
             line_height=4.5,
             align="C",
         )
-        return (
-            _SIGNATURE_TOP_SPACING
-            + 4
-            + 4
-            + 9
-            + director_height
-            + 4
-        )
+        return 5 + director_height + 7
 
     @staticmethod
-    def _requires_new_page(pdf: _InstitutionalPdf, required_height: float) -> bool:
-        available_page_height = pdf.page_break_trigger - pdf.t_margin
-        if required_height > available_page_height:
-            return False
-        return required_height > pdf.page_break_trigger - pdf.get_y()
-
-    @staticmethod
-    def _requires_new_table_page(
-        pdf: _InstitutionalPdf,
-        *,
-        header_height: float,
-        row_height: float,
-        signature_height: float,
-        has_drawn_header: bool,
-    ) -> bool:
-        required_height = row_height + signature_height
-        if not has_drawn_header:
-            required_height += header_height
-        if required_height <= pdf.page_break_trigger - pdf.get_y():
-            return False
-        return pdf.get_y() > pdf.t_margin
-
-    @staticmethod
-    def _ensure_table_row_fits_page(
-        pdf: _InstitutionalPdf, row_height: float, header_height: float
-    ) -> None:
-        max_row_height = (pdf.page_break_trigger - pdf.t_margin) - header_height
-        if row_height > max_row_height:
+    def _ensure_space(pdf: _InstitutionalPdf, required_height: float) -> None:
+        if required_height > _CONTENT_BOTTOM - _BODY_TOP:
             raise PdfGenerationError()
+        if pdf.get_y() + required_height > _CONTENT_BOTTOM:
+            pdf.add_page()

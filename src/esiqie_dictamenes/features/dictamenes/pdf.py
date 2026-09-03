@@ -36,6 +36,13 @@ def format_session_date(value: date) -> str:
     return f"{value.day} DE {_MONTHS[value.month - 1]}"
 
 
+def format_dictamen_date(value: date) -> str:
+    """Format the issued ruling date in the historical Spanish document style."""
+    if not isinstance(value, date):
+        raise TypeError("Dictamen date must be a date object.")
+    return f"{value.day} de {_MONTHS[value.month - 1].capitalize()} de {value.year}"
+
+
 def build_session_paragraph(fecha_sesion: date) -> str:
     return _SESSION_PARAGRAPH.format(
         fecha_sesion=format_session_date(fecha_sesion)

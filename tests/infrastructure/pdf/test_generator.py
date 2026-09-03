@@ -25,16 +25,26 @@ TABLE_HEADERS = (
     "Intentos Ordinario",
     "Inscrita",
 )
-TABLE_COLUMN_WIDTHS_MM = (88, 32, 30, 22)
+TABLE_COLUMN_WIDTHS_MM = (112, 33, 30, 15)
 LONG_SUBJECT = (
     "PROCESOS DE SEPARACI\u00d3N POR MEMBRANA Y LOS QUE INVOLUCRAN "
     "UNA FASE S\u00d3LIDA"
 )
 LONG_SUBJECT_MARKERS = ("PROCESOS", "MEMBRANA", "INVOLUCRAN", "S\u00d3LIDA")
-TABLE_LEFT_MM = 19
-TABLE_RIGHT_MM = 191
-FOOTER_TOP_MM = 276
+TABLE_LEFT_MM = 10
+TABLE_RIGHT_MM = 200
+FOOTER_TOP_MM = 269
 POINTS_PER_MM = 72 / 25.4
+HISTORICAL_DICTAMEN_TOP_MM = 139
+HISTORICAL_TABLE_TOP_MM = 149
+HISTORICAL_SIGNATURE_TOP_MM = 240
+HISTORICAL_TABLE_HEADER_HEIGHT_MM = 10
+HISTORICAL_TABLE_ROW_HEIGHT_MM = 8
+BACKGROUND_IMAGE_RECT_MM = (30, 50, 150)
+IPN_IMAGE_RECT_MM = (10, 10, 30)
+ESIQIE_IMAGE_RECT_MM = (180, 10, 20)
+HEADER_BLUE_RGB = (41 / 255, 128 / 255, 185 / 255)
+ALTERNATE_ROW_RGB = (240 / 255, 240 / 255, 240 / 255)
 
 
 def _request() -> PdfRequest:
@@ -113,6 +123,37 @@ def _table_rectangles(page: pymupdf.Page) -> list[pymupdf.Rect]:
     return rectangles
 
 
+def _table_row_groups(page: pymupdf.Page) -> list[list[pymupdf.Rect]]:
+    widths = [width * POINTS_PER_MM for width in TABLE_COLUMN_WIDTHS_MM]
+    rows: dict[float, list[pymupdf.Rect]] = {}
+    for rect in _table_rectangles(page):
+        if not any(abs(rect.width - width) <= 3 for width in widths):
+            continue
+        rows.setdefault(round(rect.y0, 1), []).append(rect)
+    return [
+        sorted(rectangles, key=lambda rect: rect.x0)
+        for _, rectangles in sorted(rows.items())
+        if len(rectangles) == 4
+    ]
+
+
+def _drawing_fill(page: pymupdf.Page, target: pymupdf.Rect) -> tuple[float, float, float]:
+    for drawing in page.get_drawings():
+        rect = drawing.get("rect")
+        if rect is None:
+            continue
+        if abs(rect.x0 - target.x0) > 0.5 or abs(rect.y0 - target.y0) > 0.5:
+            continue
+        fill = drawing.get("fill")
+        if fill is not None:
+            return fill[:3]
+    raise AssertionError(f"Missing fill for rectangle {target!r}")
+
+
+def _image_rectangles(page: pymupdf.Page) -> list[pymupdf.Rect]:
+    return [rect for image in page.get_images(full=True) for rect in page.get_image_rects(image[0])]
+
+
 def _row_rectangles(page: pymupdf.Page, expected_y: float | None = None) -> list[pymupdf.Rect]:
     widths = [width * POINTS_PER_MM for width in TABLE_COLUMN_WIDTHS_MM]
     rectangles = [
@@ -170,6 +211,150 @@ def test_generate_returns_one_real_in_memory_pdf_without_a_subject_table():
         pdf.close()
 
 
+def test_generate_uses_historical_images_and_short_page_bands():
+    request = replace(
+        _table_request(MateriaElegible("QUIMICA ORGANICA", 20242, 20, 2, "SI")),
+        director="Dra. Ines Munoz",
+    )
+
+    result = asyncio.run(RealPdfGenerator(project_assets_dir()).generate(request))
+    pdf = pymupdf.open(stream=result.content, filetype="pdf")
+
+    try:
+        page = pdf[0]
+        image_rectangles = _image_rectangles(page)
+
+        assert len(image_rectangles) == 3
+
+        background = max(image_rectangles, key=lambda rect: rect.width * rect.height)
+        ipn_logo = min(image_rectangles, key=lambda rect: rect.x0)
+        esiqie_logo = max(image_rectangles, key=lambda rect: rect.x0)
+
+        assert background.x0 == pytest.approx(BACKGROUND_IMAGE_RECT_MM[0] * POINTS_PER_MM, abs=2)
+        assert background.y0 == pytest.approx(BACKGROUND_IMAGE_RECT_MM[1] * POINTS_PER_MM, abs=2)
+        assert background.width == pytest.approx(BACKGROUND_IMAGE_RECT_MM[2] * POINTS_PER_MM, abs=2)
+        assert ipn_logo.x0 == pytest.approx(IPN_IMAGE_RECT_MM[0] * POINTS_PER_MM, abs=2)
+        assert ipn_logo.y0 == pytest.approx(IPN_IMAGE_RECT_MM[1] * POINTS_PER_MM, abs=2)
+        assert ipn_logo.width == pytest.approx(IPN_IMAGE_RECT_MM[2] * POINTS_PER_MM, abs=2)
+        assert esiqie_logo.x0 == pytest.approx(ESIQIE_IMAGE_RECT_MM[0] * POINTS_PER_MM, abs=2)
+        assert esiqie_logo.y0 == pytest.approx(ESIQIE_IMAGE_RECT_MM[1] * POINTS_PER_MM, abs=2)
+        assert esiqie_logo.width == pytest.approx(ESIQIE_IMAGE_RECT_MM[2] * POINTS_PER_MM, abs=2)
+
+        table_header_rect = page.search_for("Materia")[0]
+        signature_rect = page.search_for("Dra.")[0]
+        footer_rect = page.search_for("Archivo")[0]
+
+        assert table_header_rect.y0 >= HISTORICAL_TABLE_TOP_MM * POINTS_PER_MM
+        assert signature_rect.y0 >= HISTORICAL_SIGNATURE_TOP_MM * POINTS_PER_MM
+        assert footer_rect.y0 >= FOOTER_TOP_MM * POINTS_PER_MM - 3
+    finally:
+        pdf.close()
+
+
+def test_generate_uses_historical_labels_and_omits_modern_markers():
+    request = replace(
+        _table_request(MateriaElegible("QUIMICA ORGANICA", 20242, 20, 2, "SI")),
+        director="Dra. Ines Munoz",
+    )
+
+    result = asyncio.run(RealPdfGenerator(project_assets_dir()).generate(request))
+    pdf, text = _extract_text(result.content)
+
+    try:
+        assert "NUMERO DE BOLETA:" in _page_text(pdf[0])
+        assert "DOCUMENTO CONFIDENCIAL DE USO INSTITUCIONAL" not in text
+        assert "ATENTAMENTE" not in text
+        assert "DIRECTOR(A)" not in text
+        assert "DICTAMINACIÃƒÆ’Ã¢â‚¬Å“N FINAL" not in text
+    finally:
+        pdf.close()
+
+
+def test_generate_uses_historical_header_and_alternating_table_fills():
+    request = _table_request(
+        MateriaElegible("QUIMICA ORGANICA", 20242, 20, 2, "SI"),
+        MateriaElegible("FISICA MODERNA", 20231, 21, 4, "NO"),
+        MateriaElegible("TERMODINAMICA APLICADA", 20222, 22, 1, None),
+    )
+
+    result = asyncio.run(RealPdfGenerator(project_assets_dir()).generate(request))
+    pdf = pymupdf.open(stream=result.content, filetype="pdf")
+
+    try:
+        rows = _table_row_groups(pdf[0])
+
+        assert len(rows) >= 4
+        assert _drawing_fill(pdf[0], rows[0][0]) == pytest.approx(HEADER_BLUE_RGB, abs=0.02)
+        assert _drawing_fill(pdf[0], rows[1][0]) == pytest.approx((1.0, 1.0, 1.0), abs=0.02)
+        assert _drawing_fill(pdf[0], rows[2][0]) == pytest.approx(ALTERNATE_ROW_RGB, abs=0.02)
+        assert _drawing_fill(pdf[0], rows[3][0]) == pytest.approx((1.0, 1.0, 1.0), abs=0.02)
+    finally:
+        pdf.close()
+
+
+def test_generate_preserves_historical_minimum_heights_for_short_table_rows():
+    request = _table_request(
+        MateriaElegible("QUIMICA ORGANICA", 20242, 20, 2, "SI"),
+        MateriaElegible("FISICA MODERNA", 20231, 21, 4, "NO"),
+    )
+
+    result = asyncio.run(RealPdfGenerator(project_assets_dir()).generate(request))
+    pdf = pymupdf.open(stream=result.content, filetype="pdf")
+
+    try:
+        rows = _table_row_groups(pdf[0])
+
+        assert rows[0][0].height == pytest.approx(
+            HISTORICAL_TABLE_HEADER_HEIGHT_MM * POINTS_PER_MM,
+            abs=1,
+        )
+        assert rows[1][0].height == pytest.approx(
+            HISTORICAL_TABLE_ROW_HEIGHT_MM * POINTS_PER_MM,
+            abs=1,
+        )
+        assert rows[2][0].height == pytest.approx(
+            HISTORICAL_TABLE_ROW_HEIGHT_MM * POINTS_PER_MM,
+            abs=1,
+        )
+    finally:
+        pdf.close()
+
+
+def test_generate_emits_an_explicit_black_text_state_for_the_first_page_header():
+    result = asyncio.run(RealPdfGenerator(project_assets_dir()).generate(_request()))
+    pdf = pymupdf.open(stream=result.content, filetype="pdf")
+
+    try:
+        stream = b"".join(pdf.xref_stream(xref) for xref in pdf[0].get_contents())
+        header_position = stream.index(b"Instituto Politecnico Nacional")
+
+        assert b"0 g" in stream[:header_position]
+    finally:
+        pdf.close()
+
+
+def test_generate_moves_the_signature_up_when_the_subject_table_is_absent():
+    without_table = asyncio.run(
+        RealPdfGenerator(project_assets_dir()).generate(_request())
+    )
+    with_table = asyncio.run(
+        RealPdfGenerator(project_assets_dir()).generate(
+            _table_request(MateriaElegible("QUIMICA ORGANICA", 20242, 20, 2, "SI"))
+        )
+    )
+    no_table_pdf = pymupdf.open(stream=without_table.content, filetype="pdf")
+    table_pdf = pymupdf.open(stream=with_table.content, filetype="pdf")
+
+    try:
+        no_table_signature = no_table_pdf[0].search_for("Dra.")[0]
+        table_signature = table_pdf[0].search_for("Dra.")[0]
+
+        assert no_table_signature.y0 < table_signature.y0
+    finally:
+        no_table_pdf.close()
+        table_pdf.close()
+
+
 def test_generate_keeps_a_wrapped_director_signature_block_on_one_page():
     base_request = _request()
     request = replace(
@@ -196,11 +381,9 @@ def test_generate_keeps_a_wrapped_director_signature_block_on_one_page():
             if any(
                 marker in text
                 for marker in (
-                    "ATENTAMENTE",
-                    "LA TÉCNICA AL SERVICIO DE LA PATRIA",
-                    "DIRECTORA INÉS",
+                    "DIRECTORA INES",
                     "FIN DE FIRMA",
-                    "DIRECTOR(A)",
+                    "Presidente de la Comision",
                 )
             )
         }
@@ -371,8 +554,7 @@ def test_generate_repeats_table_headers_on_each_subject_page_without_splitting_r
 
         assert pdf.page_count > 1
         assert body_pages
-        assert sum("ATENTAMENTE" in page_text for page_text in page_texts) == 1
-        assert sum("DIRECTOR(A)" in page_text for page_text in page_texts) == 1
+        assert sum("Presidente de la Comision" in page_text for page_text in page_texts) == 1
 
         combined_text = " ".join(page_texts)
         for index, subject in enumerate(materias, start=1):
@@ -407,8 +589,8 @@ def test_generate_repeats_table_headers_on_each_subject_page_without_splitting_r
 
         signature_rects = []
         for page in pdf:
-            signature_rects.extend(page.search_for("ATENTAMENTE"))
-            signature_rects.extend(page.search_for("DIRECTOR(A)"))
+            signature_rects.extend(page.search_for("Presidente de la Comision"))
+            signature_rects.extend(page.search_for("Dra. Ines"))
         assert signature_rects
         assert max(rect.y1 for rect in signature_rects) < footer_top
 
@@ -418,8 +600,7 @@ def test_generate_repeats_table_headers_on_each_subject_page_without_splitting_r
             if any(
                 marker in page_text
                 for marker in (
-                    "ATENTAMENTE",
-                    "DIRECTOR(A)",
+                    "Presidente de la Comision",
                     "MATERIA01",
                     "MATERIA22",
                 )
