@@ -270,6 +270,29 @@ def test_generate_uses_historical_labels_and_omits_modern_markers():
         pdf.close()
 
 
+def test_generate_extracts_historical_accents_in_institutional_copy():
+    result = asyncio.run(RealPdfGenerator(project_assets_dir()).generate(_request()))
+    pdf, text = _extract_text(result.content)
+
+    try:
+        for expected in (
+            "Instituto Politécnico Nacional",
+            "Escuela Superior de Ingeniería Química e Industrias Extractivas",
+            "Consejo Técnico Consultivo Escolar",
+            "Comisión de Situación Escolar",
+            "CARÁCTER:",
+            "ARTÍCULO",
+            "FRACCIÓN",
+            "32°",
+            "Gestión Escolar",
+            "Presidente de la Comisión de Situación Escolar",
+            "y del Consejo Técnico Consultivo Escolar",
+        ):
+            assert expected in text
+    finally:
+        pdf.close()
+
+
 def test_generate_uses_historical_header_and_alternating_table_fills():
     request = _table_request(
         MateriaElegible("QUIMICA ORGANICA", 20242, 20, 2, "SI"),
@@ -326,7 +349,7 @@ def test_generate_emits_an_explicit_black_text_state_for_the_first_page_header()
 
     try:
         stream = b"".join(pdf.xref_stream(xref) for xref in pdf[0].get_contents())
-        header_position = stream.index(b"Instituto Politecnico Nacional")
+        header_position = stream.index("Instituto Politécnico Nacional".encode("latin-1"))
 
         assert b"0 g" in stream[:header_position]
     finally:
@@ -383,12 +406,41 @@ def test_generate_keeps_a_wrapped_director_signature_block_on_one_page():
                 for marker in (
                     "DIRECTORA INES",
                     "FIN DE FIRMA",
-                    "Presidente de la Comision",
+                    "Presidente de la Comisión",
                 )
             )
         }
 
         assert len(signature_pages) == 1
+    finally:
+        pdf.close()
+
+
+def test_generate_never_leaves_a_table_header_without_a_subject_row():
+    request = replace(
+        _request(),
+        materias=(MateriaElegible("QUIMICA ORGANICA", 20242, 20, 2, "SI"),),
+        director="DIRECTOR " * 300,
+    )
+
+    result = asyncio.run(RealPdfGenerator(project_assets_dir()).generate(request))
+    pdf = pymupdf.open(stream=result.content, filetype="pdf")
+
+    try:
+        page_texts = [_page_text(page) for page in pdf]
+        table_pages = {
+            page_number
+            for page_number, page_text in enumerate(page_texts)
+            if "Materia Desfasada" in page_text
+        }
+        subject_pages = {
+            page_number
+            for page_number, page_text in enumerate(page_texts)
+            if "QUIMICA ORGANICA" in page_text
+        }
+
+        assert table_pages == subject_pages
+        assert sum("Presidente de la Comisión de Situación Escolar" in page_text for page_text in page_texts) == 1
     finally:
         pdf.close()
 
@@ -554,7 +606,7 @@ def test_generate_repeats_table_headers_on_each_subject_page_without_splitting_r
 
         assert pdf.page_count > 1
         assert body_pages
-        assert sum("Presidente de la Comision" in page_text for page_text in page_texts) == 1
+        assert sum("Presidente de la Comisión" in page_text for page_text in page_texts) == 1
 
         combined_text = " ".join(page_texts)
         for index, subject in enumerate(materias, start=1):
@@ -589,7 +641,7 @@ def test_generate_repeats_table_headers_on_each_subject_page_without_splitting_r
 
         signature_rects = []
         for page in pdf:
-            signature_rects.extend(page.search_for("Presidente de la Comision"))
+            signature_rects.extend(page.search_for("Presidente de la Comisión"))
             signature_rects.extend(page.search_for("Dra. Ines"))
         assert signature_rects
         assert max(rect.y1 for rect in signature_rects) < footer_top
@@ -600,7 +652,7 @@ def test_generate_repeats_table_headers_on_each_subject_page_without_splitting_r
             if any(
                 marker in page_text
                 for marker in (
-                    "Presidente de la Comision",
+                    "Presidente de la Comisión",
                     "MATERIA01",
                     "MATERIA22",
                 )

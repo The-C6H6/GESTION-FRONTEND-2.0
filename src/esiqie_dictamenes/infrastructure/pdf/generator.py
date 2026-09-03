@@ -51,13 +51,13 @@ class _InstitutionalPdf(FPDF):
         self._out("0 g")
         self.set_xy(40, 10)
         self.set_font("Helvetica", "B", 15)
-        self.cell(130, 6, "Instituto Politecnico Nacional", align="C")
+        self.cell(130, 6, "Instituto Politécnico Nacional", align="C")
         self.set_xy(40, 18)
         self.set_font("Helvetica", "", 10)
         for line in (
-            "Escuela Superior de Ingenieria Quimica e Industrias Extractivas",
-            "Consejo Tecnico Consultivo Escolar",
-            "Comision de Situacion Escolar",
+            "Escuela Superior de Ingeniería Química e Industrias Extractivas",
+            "Consejo Técnico Consultivo Escolar",
+            "Comisión de Situación Escolar",
         ):
             self.cell(130, 5, line, align="C", new_x=XPos.LEFT, new_y=YPos.NEXT)
             self.set_x(40)
@@ -73,7 +73,7 @@ class _InstitutionalPdf(FPDF):
         self.multi_cell(
             _BODY_WIDTH,
             3.5,
-            "c.c.p. Archivo del Departamento de Gestion Escolar\n"
+            "c.c.p. Archivo del Departamento de Gestión Escolar\n"
             "NOTA: Este documento carece de validez oficial si presenta "
             "tachaduras, raspaduras o enmendaduras.",
         )
@@ -134,13 +134,13 @@ class RealPdfGenerator:
     @staticmethod
     def _draw_metadata(pdf: _InstitutionalPdf, request: PdfRequest) -> None:
         metadata = (
-            ("CARACTER:", "CONFIDENCIAL"),
+            ("CARÁCTER:", "CONFIDENCIAL"),
             ("PARTES RESERVADAS:", "TODO EL DOCUMENTO"),
             (
                 "FUNDAMENTO LEGAL:",
-                "ARTICULO 3, FRACCION II; ARTICULO 18, FRACCION II Y 21 "
-                "DE LA LFAIPG, LINEAMIENTO 32o, FRACCION XVII, "
-                "LINEAMIENTO 35o.",
+                "ARTÍCULO 3, FRACCIÓN II; ARTÍCULO 18, FRACCIÓN II Y 21 "
+                "DE LA LFAIPG, LINEAMIENTO 32°, FRACCIÓN XVII, "
+                "LINEAMIENTO 35°.",
             ),
         )
         x = 114
@@ -216,7 +216,6 @@ class RealPdfGenerator:
                 line_height=_TABLE_HEADER_LINE_HEIGHT,
             ),
         )
-        signature_height = cls._measure_signature_height(pdf, request.director)
         header_drawn = False
         for index, materia in enumerate(request.materias):
             cells = (
@@ -228,16 +227,13 @@ class RealPdfGenerator:
             row_height = max(_TABLE_ROW_MIN_HEIGHT, cls._measure_table_height(pdf, cells))
             if row_height + header_height > _CONTENT_BOTTOM - _BODY_TOP:
                 raise PdfGenerationError()
-            required = row_height + signature_height + (0 if header_drawn else header_height)
+            required = row_height + (0 if header_drawn else header_height)
             if pdf.get_y() + required > _CONTENT_BOTTOM:
                 pdf.add_page()
                 header_drawn = False
             if not header_drawn:
                 cls._draw_table_header(pdf, header_height)
                 header_drawn = True
-            if pdf.get_y() + row_height + signature_height > _CONTENT_BOTTOM:
-                pdf.add_page()
-                cls._draw_table_header(pdf, header_height)
             cls._draw_table_row(pdf, cells, row_height=row_height, index=index)
         pdf.ln(3)
 
@@ -333,8 +329,8 @@ class RealPdfGenerator:
         pdf.multi_cell(
             _BODY_WIDTH,
             3.5,
-            "Presidente de la Comision de Situacion Escolar\n"
-            "y del Consejo Tecnico Consultivo Escolar",
+            "Presidente de la Comisión de Situación Escolar\n"
+            "y del Consejo Técnico Consultivo Escolar",
             align="C",
         )
 
