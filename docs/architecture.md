@@ -2,7 +2,7 @@
 
 ## Objetivo del esqueleto
 
-La aplicación es un frontend Flet web con navegación declarativa y sesión en memoria. La autenticación, el registro de usuarios, la consulta de alumnos inscritos, la consulta de materias reprobadas, y la creación, búsqueda paginada, modificación y eliminación de dictámenes usan el backend real. Solo la generación PDF permanece en modo demostración; no existe autenticación demo ni fallback de identidad.
+La aplicación es un frontend Flet con navegación declarativa y sesión en memoria. La autenticación, el registro de usuarios, la consulta de alumnos inscritos, la consulta de materias reprobadas, y la creación, búsqueda paginada, modificación y eliminación de dictámenes usan el backend real. CREATE y UPDATE de escritorio generan y persisten PDFs institucionales reales; no existe autenticación demo ni fallback de identidad.
 
 ## Capas y dependencias
 
@@ -18,13 +18,15 @@ Feature controllers
              │
 Infrastructure adapters
     ├── HTTP: login/identity/refresh, user-registration, enrolled-student, failed-subject, ruling-create/search/update/delete APIs
-    └── Demo: PDF and compatibility repositories
+    ├── PDF: institutional renderer and collision-safe local document store
+    └── Demo: compatibility repositories not used for authentication or PDF output
 ```
 
 - `core/` compone rutas, sesión, tema y servicios compartidos.
 - `features/` agrupa modelos, contratos, controladores y vistas por caso de uso.
 - `infrastructure/demo/` implementa contratos con datos en memoria.
 - `infrastructure/http/` centraliza el cliente asíncrono y los adaptadores reales; el estado autenticado pertenece a `core/session.py`.
+- `infrastructure/pdf/` genera el documento institucional en memoria y persiste sus bytes en un destino local validado sin sobrescribir archivos existentes.
 - `shared/components/` contiene controles visuales reutilizables, sin reglas de negocio.
 - Las vistas dependen de controladores, nunca de adaptadores concretos.
 
@@ -50,7 +52,8 @@ La coordinación captura además la instancia de sesión que originó la solicit
 - `DictamenDeleteRepository`: contrato enfocado para eliminar una o varias claves; producción reutiliza `ApiDictamenRepository`.
 - `InscritoRepository`: consulta de un inscrito por boleta; usa `ApiInscritoRepository`.
 - `ReprobadoRepository`: búsqueda de materias reprobadas; producción usa `ApiReprobadoRepository` y demo conserva el adaptador combinado.
-- `PdfGenerator`: recibe `PdfRequest` y devuelve `GeneratedDocument`.
+- `PdfGenerator`: recibe `PdfRequest` y devuelve un `GeneratedDocument` real en memoria.
+- `PdfDocumentStore`: valida el destino y persiste los bytes mediante creación exclusiva, resolviendo colisiones con sufijos numéricos.
 
 `core/settings.py` carga `.env` en tiempo de ejecución. Prefiere `API_BASE_URL`, acepta `IP_ADDRESS` por compatibilidad y requiere `RUTA_LOGIN`, `RUTA_AUTENTICACION`, `RUTA_REFRESH`, `RUTA_NUEVO_USUARIO`, `RUTA_VISUALIZAR_INSCRITOS`, `RUTA_REPROBADOS`, `RUTA_GENERAR_DICTAMEN`, `RUTA_LECTURA_DICTAMINACIONES`, `RUTA_MODIFICAR_DICTAMEN` y `RUTA_ELIMINAR`. Las rutas de identidad, renovación y registro son rutas estáticas relativas: no aceptan host, query, fragmento ni marcadores. La ruta de inscritos debe contener exactamente un marcador `{boleta}`; las rutas de reprobados, creación, lectura y eliminación de dictámenes deben ser relativas y no pueden incluir host, query, fragmento ni marcadores. La ruta de modificación debe ser relativa y contener exactamente un marcador `{clave}`. Las pruebas inyectan un mapping explícito y nunca dependen de `.env` ni del backend real.
 
@@ -70,9 +73,11 @@ La navegación lateral, el dashboard y las vistas consultan únicamente `session
 
 ## Datos de API y datos de PDF
 
-`DictamenCreate` contiene únicamente los campos previstos para la API: boleta, nombre, fecha de emisión, año y dictaminación. La fecha se obtiene al crear, se conserva como `date` en el dominio y se serializa como ISO `YYYY-MM-DD`; `Clave` nunca forma parte de la solicitud. El nombre del director, la fecha de sesión y las materias elegibles pertenecen a `PdfRequest`, por lo que no contaminan el payload de creación. `fecha_sesion` se conserva como `date` y el adaptador PDF debe usar el formateador compartido para producir textos como `11 DE DICIEMBRE`, sin año. Crear un dictamen prepara este contexto tipado, pero no invoca al generador PDF. Al modificar, la interfaz solo construye `DictamenUpdate(dictaminacion=...)`; clave, boleta y año permanecen de solo lectura.
+`DictamenCreate` contiene únicamente los campos previstos para la API: boleta, nombre, fecha de emisión, año y dictaminación. La fecha se obtiene al crear, se conserva como `date` en el dominio y se serializa como ISO `YYYY-MM-DD`; `Clave` nunca forma parte de la solicitud. El nombre del director, la fecha de sesión y las materias elegibles pertenecen a `PdfRequest`, por lo que no contaminan el payload de creación. `fecha_sesion` se conserva como `date` y el renderer usa el formateador compartido para producir textos como `11 DE DICIEMBRE`, sin año. Al modificar, la interfaz construye `DictamenUpdate(dictaminacion=...)`; clave, boleta y año permanecen de solo lectura, mientras director y fecha de sesión se capturan de nuevo para el documento actualizado.
 
-El generador demo devuelve un nombre de archivo, `is_simulation=True` y una vista previa del párrafo de sesión, pero ningún contenido binario. Esto evita ofrecer una descarga que aparente ser un PDF válido.
+`RealPdfGenerator` consume el `Dictamen` confirmado por el backend y devuelve bytes PDF con `is_simulation=False`; CREATE aporta sus materias elegibles y UPDATE usa la entidad final del `PUT` con `materias=()`. Una colección vacía omite toda la tabla sin insertar placeholders ni reservar su espacio. La firma se mantiene en la zona inferior y pasa completa a una nueva página institucional si la dictaminación ocupa el espacio disponible. Cuando existen materias, las filas usan altura medida, conservan `Materia Desfasada`, `Periodo Reprobada`, `Intentos Ordinario` e `Inscrita`, no se dividen y repiten su encabezado al paginar.
+
+La vista de escritorio solicita y valida un destino antes de delegar el `POST` o `PUT`. Tras la respuesta final construye `PdfRequest`, invoca el renderer una vez y entrega los bytes a `LocalPdfDocumentStore`. Cancelar el selector termina sin mutación ni salida local. Una falla de generación o filesystem posterior a una mutación correcta no intenta rollback ni repite la API: la UI conserva el estado remoto confirmado y muestra un resultado parcial seguro. El filename sugerido usa la boleta y `dictamen.fecha` en formato ISO; el store crea de forma exclusiva `base.pdf`, `base_2.pdf`, `base_3.pdf`, etc.
 
 ## Regla de periodos
 
@@ -91,8 +96,8 @@ La selección se calcula en el controlador y la vista solo la presenta. Las mate
 
 El dropdown determina la fuente de forma explícita en `DictamenController`: `Alumno inscrito` consulta únicamente `GET /api/inscritos/{boleta}` y `Alumno reprobado` consulta únicamente `GET /api/reprobados?boleta=<boleta>`. No existe fallback ni comprobación cruzada entre repositorios. Un alumno reprobado se representa como `AlumnoDictaminable` usando los datos comunes de los propios items, sin fabricar un `Inscrito`; una página vacía produce el estado controlado de no encontrado. Después se aplica la regla de periodos a sus materias. Un guard retenido por el componente impide consultas concurrentes duplicadas y restaura siempre el estado de carga. Al cambiar boleta, origen o periodo se invalida la selección anterior para impedir que un dictamen use datos que ya no corresponden a los criterios visibles.
 
-## Sustitución futura de adaptadores
+## Composición de adaptadores
 
 La composición ocurre en `core/services.py`. `build_services()` comparte un `ApiClient` y un único `AuthSessionStore` entre `ApiAuthRepository`, `ApiUserRepository`, los demás adaptadores HTTP y los guards de los controladores. El controlador conserva `DemoAlumnoRepository` y `DemoDictamenRepository` para compatibilidad, pero recibe por separado los repositorios HTTP enfocados de inscritos, reprobados, creación, búsqueda, modificación y eliminación. Las pruebas construyen sus propias sesiones y servicios no conectados; producción no ofrece login, sesión ni registro de usuarios demo.
 
-La generación real de PDF continúa fuera del alcance actual. El adaptador PDF futuro deberá basarse en las referencias de `referencias/` y consumir el `PdfRequest` ya separado del payload HTTP.
+La composición de producción inyecta el mismo `RealPdfGenerator` y `LocalPdfDocumentStore` en los flujos CREATE y UPDATE. El renderer resuelve los assets desde la raíz del proyecto, no desde el working directory, y no importa Flet ni realiza llamadas HTTP. El selector y la persistencia permanecen en la orquestación de la vista para conservar el orden transaccional.
