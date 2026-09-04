@@ -356,26 +356,77 @@ def test_generate_emits_an_explicit_black_text_state_for_the_first_page_header()
         pdf.close()
 
 
-def test_generate_moves_the_signature_up_when_the_subject_table_is_absent():
-    without_table = asyncio.run(
-        RealPdfGenerator(project_assets_dir()).generate(_request())
-    )
-    with_table = asyncio.run(
-        RealPdfGenerator(project_assets_dir()).generate(
-            _table_request(MateriaElegible("QUIMICA ORGANICA", 20242, 20, 2, "SI"))
-        )
-    )
-    no_table_pdf = pymupdf.open(stream=without_table.content, filetype="pdf")
-    table_pdf = pymupdf.open(stream=with_table.content, filetype="pdf")
+def test_generate_anchors_the_no_subject_signature_at_the_historical_bottom():
+    result = asyncio.run(RealPdfGenerator(project_assets_dir()).generate(_request()))
+    pdf = pymupdf.open(stream=result.content, filetype="pdf")
 
     try:
-        no_table_signature = no_table_pdf[0].search_for("Dra.")[0]
-        table_signature = table_pdf[0].search_for("Dra.")[0]
+        signature = pdf[0].search_for("Dra.")[0]
 
-        assert no_table_signature.y0 < table_signature.y0
+        assert signature.y0 >= HISTORICAL_SIGNATURE_TOP_MM * POINTS_PER_MM
     finally:
-        no_table_pdf.close()
-        table_pdf.close()
+        pdf.close()
+
+
+def test_generate_keeps_the_no_subject_signature_at_the_bottom_after_long_text():
+    base_request = _request()
+    request = replace(
+        base_request,
+        dictamen=replace(
+            base_request.dictamen,
+            dictaminacion="Se autoriza la reinscripción. " * 90,
+        ),
+    )
+
+    result = asyncio.run(RealPdfGenerator(project_assets_dir()).generate(request))
+    pdf = pymupdf.open(stream=result.content, filetype="pdf")
+
+    try:
+        signature_pages = [
+            (page, page.search_for("Dra."))
+            for page in pdf
+            if page.search_for("Dra.")
+        ]
+
+        assert len(signature_pages) == 1
+        _, signature_rects = signature_pages[0]
+        assert signature_rects[0].y0 >= HISTORICAL_SIGNATURE_TOP_MM * POINTS_PER_MM
+    finally:
+        pdf.close()
+
+
+def test_generate_moves_the_no_subject_signature_to_a_bottom_page_when_text_is_full():
+    base_request = _request()
+    request = replace(
+        base_request,
+        dictamen=replace(
+            base_request.dictamen,
+            dictaminacion="LONG-NO-SUBJECT-TEXT " * 260,
+        ),
+    )
+
+    result = asyncio.run(RealPdfGenerator(project_assets_dir()).generate(request))
+    pdf = pymupdf.open(stream=result.content, filetype="pdf")
+
+    try:
+        body_pages = [
+            page_number
+            for page_number, page in enumerate(pdf)
+            if page.search_for("LONG-NO-SUBJECT-TEXT")
+        ]
+        signature_pages = [
+            (page_number, page.search_for("Dra."))
+            for page_number, page in enumerate(pdf)
+            if page.search_for("Dra.")
+        ]
+
+        assert body_pages
+        assert len(signature_pages) == 1
+        signature_page_number, signature_rects = signature_pages[0]
+        assert signature_page_number > max(body_pages)
+        assert signature_rects[0].y0 >= HISTORICAL_SIGNATURE_TOP_MM * POINTS_PER_MM
+    finally:
+        pdf.close()
 
 
 def test_generate_keeps_a_wrapped_director_signature_block_on_one_page():

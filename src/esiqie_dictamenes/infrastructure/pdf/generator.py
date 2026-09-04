@@ -113,7 +113,7 @@ class RealPdfGenerator:
         self._draw_signature(
             pdf,
             request.director,
-            minimum_y=_SIGNATURE_TOP if request.materias else pdf.get_y(),
+            minimum_y=_SIGNATURE_TOP,
         )
 
         content = bytes(pdf.output())
